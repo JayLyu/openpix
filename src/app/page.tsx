@@ -608,7 +608,14 @@ export default function Home() {
     <div className="flex h-screen flex-col overflow-hidden">
       <header className="shrink-0 border-b border-border px-6 py-3 flex items-center justify-between gap-4">
         <div className="flex shrink-0 items-center gap-3">
-          <h1 className="text-xl font-semibold tracking-tight">OpenPix</h1>
+          <a
+            href="https://github.com/JayLyu/openpix"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xl font-semibold tracking-tight transition-colors hover:text-foreground/80"
+          >
+            OpenPix
+          </a>
           <ThemeToggle />
         </div>
 
@@ -1272,18 +1279,6 @@ export default function Home() {
           </div>
         </main>
       </div>
-
-      <footer className="shrink-0 border-t border-border px-6 py-2 text-center text-xs text-muted-foreground">
-        Created by{" "}
-        <a
-          href="https://github.com/JayLyu/openpix"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline underline-offset-2 transition-colors hover:text-foreground"
-        >
-          BaiKong
-        </a>
-      </footer>
 
       {clearCacheConfirmOpen && (
         <div
