@@ -1,6 +1,7 @@
 import { parseTaskUsage, type TaskUsage } from "@/lib/pricing";
 
 const OPENROUTER_API = "https://openrouter.ai/api/v1";
+const CONNECTIVITY_TIMEOUT_MS = 8_000;
 
 type TextPart = { type: "text"; text: string };
 type ImagePart = { type: "image_url"; image_url: { url: string } };
@@ -35,6 +36,54 @@ type ChatCompletionResponse = {
     };
   }>;
 };
+
+export type OpenRouterConnectivityResult = {
+  ok: boolean;
+  message: string;
+};
+
+function buildClientHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  return {
+    "HTTP-Referer": window.location.origin,
+    "X-Title": "OpenPix",
+  };
+}
+
+export async function checkOpenRouterConnectivity(): Promise<OpenRouterConnectivityResult> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      CONNECTIVITY_TIMEOUT_MS,
+    );
+
+    const response = await fetch(
+      `${OPENROUTER_API}/models?output_modalities=image`,
+      {
+        method: "GET",
+        signal: controller.signal,
+        headers: buildClientHeaders(),
+      },
+    );
+
+    clearTimeout(timeout);
+
+    if (response.ok) {
+      return { ok: true, message: "OpenRouter 服务连接正常" };
+    }
+
+    return {
+      ok: false,
+      message: `OpenRouter 响应异常（${response.status}）`,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return { ok: false, message: "连接 OpenRouter 超时，请检查网络" };
+    }
+    return { ok: false, message: "无法连接 OpenRouter，请检查网络或稍后重试" };
+  }
+}
 
 export function validateOpenRouterApiKey(apiKey: string): string | null {
   const key = apiKey.trim();

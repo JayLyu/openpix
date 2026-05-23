@@ -1,3 +1,15 @@
+"use client";
+
+import { useId, useState } from "react";
+import { createPortal } from "react-dom";
+import {
+  autoUpdate,
+  flip,
+  offset,
+  shift,
+  size as floatingSize,
+  useFloating,
+} from "@floating-ui/react-dom";
 import { cn } from "@/lib/utils";
 
 type TooltipProps = {
@@ -13,18 +25,66 @@ export function Tooltip({
   className,
   contentClassName,
 }: TooltipProps) {
+  const [open, setOpen] = useState(false);
+  const tooltipId = useId();
+
+  const { refs, floatingStyles, isPositioned } = useFloating({
+    open,
+    placement: "top",
+    strategy: "fixed",
+    middleware: [
+      offset(6),
+      flip({
+        padding: 8,
+        fallbackPlacements: ["bottom", "top", "right", "left"],
+      }),
+      shift({ padding: 8 }),
+      floatingSize({
+        padding: 8,
+        apply({ availableWidth, elements }) {
+          Object.assign(elements.floating.style, {
+            maxWidth: `${Math.max(120, Math.min(availableWidth, 280))}px`,
+          });
+        },
+      }),
+    ],
+    whileElementsMounted: autoUpdate,
+  });
+
+  const showTooltip = open && typeof document !== "undefined";
+
   return (
-    <span className={cn("group/tooltip relative inline-flex", className)}>
-      {children}
+    <>
       <span
-        role="tooltip"
-        className={cn(
-          "pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 w-max max-w-[min(240px,90vw)] -translate-x-1/2 rounded-md border border-border bg-popover px-2 py-1 text-[10px] leading-snug text-popover-foreground opacity-0 shadow-md transition-opacity group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100",
-          contentClassName ?? "break-all",
-        )}
+        ref={refs.setReference}
+        className={cn("inline-flex", className)}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        aria-describedby={open ? tooltipId : undefined}
       >
-        {content}
+        {children}
       </span>
-    </span>
+      {showTooltip &&
+        createPortal(
+          <span
+            ref={refs.setFloating}
+            id={tooltipId}
+            role="tooltip"
+            style={{
+              ...floatingStyles,
+              visibility: isPositioned ? "visible" : "hidden",
+            }}
+            className={cn(
+              "z-[100] w-max rounded-md border border-border bg-popover px-2 py-1 text-[10px] leading-snug text-popover-foreground shadow-md",
+              contentClassName ?? "break-all",
+            )}
+          >
+            {content}
+          </span>,
+          document.body,
+        )}
+    </>
   );
 }

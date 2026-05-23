@@ -73,7 +73,7 @@ export const DEFAULT_SIZE_ID = "9:16";
 export const DEFAULT_CUSTOM_WIDTH = 1024;
 export const DEFAULT_CUSTOM_HEIGHT = 1024;
 export const MIN_IMAGE_DIMENSION = 512;
-export const MAX_IMAGE_DIMENSION = 1536;
+export const MAX_IMAGE_DIMENSION = 2048;
 
 export const CUSTOM_SIZE_OPTION: SizeOption = {
   id: CUSTOM_SIZE_ID,

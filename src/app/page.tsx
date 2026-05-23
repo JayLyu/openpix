@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Tooltip } from "@/components/ui/tooltip";
 import { CostSummary } from "@/components/cost-summary";
 import { ImageLightbox } from "@/components/image-lightbox";
+import { OpenRouterStatus } from "@/components/openrouter-status";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MODELS } from "@/lib/models";
 import {
@@ -611,7 +612,8 @@ export default function Home() {
           <ThemeToggle />
         </div>
 
-        <div className="flex items-center gap-2 min-w-0 justify-end">
+        <div className="flex items-center gap-3 min-w-0 justify-end">
+          <OpenRouterStatus />
           <div className="inline-flex items-baseline gap-1 shrink-0 text-sm text-muted-foreground">
             <span>API KEY</span>
             <div className="relative group leading-none">
