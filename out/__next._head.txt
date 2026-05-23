@@ -1,6 +1,0 @@
-1:"$Sreact.fragment"
-2:I[34811,["/openpix/_next/static/chunks/08z_wra9ru863.js"],"ViewportBoundary"]
-3:I[34811,["/openpix/_next/static/chunks/08z_wra9ru863.js"],"MetadataBoundary"]
-4:"$Sreact.suspense"
-5:I[37266,["/openpix/_next/static/chunks/08z_wra9ru863.js"],"IconMark"]
-0:{"rsc":["$","$1","h",{"children":[null,["$","$L2",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]}],["$","div",null,{"hidden":true,"children":["$","$L3",null,{"children":["$","$4",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"OpenPix"}],["$","meta","1",{"name":"description","content":"Generate images with AI via OpenRouter"}],["$","link","2",{"rel":"icon","href":"/openpix/favicon.ico?favicon.0x3dzn~oxb6tn.ico","sizes":"256x256","type":"image/x-icon"}],["$","$L5","3",{}]]}]}]}],["$","meta",null,{"name":"next-size-adjust","content":""}]]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"VZzqfObwTY_uStviEXDHN"}
