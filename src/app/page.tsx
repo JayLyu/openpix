@@ -8,7 +8,6 @@ import {
   X,
   Upload,
   ChevronDown,
-  ChevronUp,
   CircleHelp,
   Download,
   ImagePlus,
@@ -141,65 +140,26 @@ function highlightPromptText(text: string, query: string): React.ReactNode {
   return parts.length > 0 ? parts : text;
 }
 
-function CollapsiblePrompt({
+function RecordPrompt({
   text,
   highlightQuery = "",
 }: {
   text: string;
   highlightQuery?: string;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [overflows, setOverflows] = useState(false);
-  const textRef = useRef<HTMLParagraphElement>(null);
-
-  useEffect(() => {
-    const el = textRef.current;
-    if (!el) return;
-
-    const checkOverflow = () => {
-      if (expanded) return;
-      setOverflows(el.scrollHeight > el.clientHeight + 1);
-    };
-
-    checkOverflow();
-    const observer = new ResizeObserver(checkOverflow);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [text, expanded, highlightQuery]);
-
-  const showToggle = overflows || expanded;
+  const content = highlightPromptText(text, highlightQuery);
 
   return (
-    <div>
-      <p
-        ref={textRef}
-        className={cn(
-          "text-sm leading-relaxed break-words",
-          !expanded && "line-clamp-2",
-        )}
-      >
-        {highlightPromptText(text, highlightQuery)}
+    <Tooltip
+      content={content}
+      contentMaxWidth={480}
+      className="block min-w-0 w-full"
+      contentClassName="whitespace-normal break-words text-left text-sm leading-relaxed px-3 py-2.5"
+    >
+      <p className="line-clamp-2 cursor-default text-sm leading-relaxed break-words">
+        {content}
       </p>
-      {showToggle && (
-        <button
-          type="button"
-          onClick={() => setExpanded((open) => !open)}
-          className="mt-0.5 inline-flex items-center gap-0.5 text-xs text-primary hover:underline"
-        >
-          {expanded ? (
-            <>
-              <ChevronUp className="size-2.5" />
-              折叠
-            </>
-          ) : (
-            <>
-              <ChevronDown className="size-2.5" />
-              展开
-            </>
-          )}
-        </button>
-      )}
-    </div>
+    </Tooltip>
   );
 }
 
@@ -226,6 +186,7 @@ export default function Home() {
   const [processingImage, setProcessingImage] = useState(false);
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
   const [retryRecord, setRetryRecord] = useState<GenerationRecord | null>(null);
+  const [deleteRecord, setDeleteRecord] = useState<GenerationRecord | null>(null);
   const [clearCacheConfirmOpen, setClearCacheConfirmOpen] = useState(false);
   const [clearCacheConfirmText, setClearCacheConfirmText] = useState("");
   const [usdCnyRate, setUsdCnyRate] = useState(DEFAULT_USD_CNY_RATE);
@@ -382,6 +343,16 @@ export default function Home() {
 
   const handleDelete = (id: string) => {
     setHistory((prev) => deleteHistoryRecord(prev, id));
+  };
+
+  const requestDelete = (record: GenerationRecord) => {
+    setDeleteRecord(record);
+  };
+
+  const confirmDelete = () => {
+    if (!deleteRecord) return;
+    handleDelete(deleteRecord.id);
+    setDeleteRecord(null);
   };
 
   const handleImageUpload = async (
@@ -1124,7 +1095,7 @@ export default function Home() {
                             进行中 {formatElapsed(item.startedAt, now)}
                           </span>
                         </div>
-                        <CollapsiblePrompt
+                        <RecordPrompt
                           text={item.prompt}
                           highlightQuery={promptSearch}
                         />
@@ -1236,7 +1207,7 @@ export default function Home() {
                           {new Date(item.createdAt).toLocaleString("zh-CN")}
                         </time>
                       </div>
-                      <CollapsiblePrompt
+                      <RecordPrompt
                         text={item.prompt}
                         highlightQuery={promptSearch}
                       />
@@ -1265,7 +1236,7 @@ export default function Home() {
                         variant="ghost"
                         size="icon-sm"
                         className="text-muted-foreground hover:text-destructive"
-                        onClick={() => handleDelete(item.id)}
+                        onClick={() => requestDelete(item)}
                         aria-label="删除记录"
                       >
                         <Trash2 />
@@ -1324,6 +1295,43 @@ export default function Home() {
                 onClick={handleClearCache}
               >
                 确认清理
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteRecord && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setDeleteRecord(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-record-dialog-title"
+        >
+          <div
+            className="w-full max-w-sm rounded-lg border border-border bg-popover p-5 shadow-lg"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="delete-record-dialog-title" className="text-sm font-medium">
+              确认删除记录
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+              删除后无法恢复，本机保存的该条生成记录和图片将被清除。是否继续？
+            </p>
+            <p className="mt-3 line-clamp-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground/90">
+              {deleteRecord.prompt}
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDeleteRecord(null)}
+              >
+                取消
+              </Button>
+              <Button type="button" variant="destructive" onClick={confirmDelete}>
+                确认删除
               </Button>
             </div>
           </div>

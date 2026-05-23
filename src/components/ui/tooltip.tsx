@@ -17,6 +17,7 @@ type TooltipProps = {
   children: React.ReactNode;
   className?: string;
   contentClassName?: string;
+  contentMaxWidth?: number;
 };
 
 export function Tooltip({
@@ -24,6 +25,7 @@ export function Tooltip({
   children,
   className,
   contentClassName,
+  contentMaxWidth = 280,
 }: TooltipProps) {
   const [open, setOpen] = useState(false);
   const tooltipId = useId();
@@ -43,7 +45,7 @@ export function Tooltip({
         padding: 8,
         apply({ availableWidth, elements }) {
           Object.assign(elements.floating.style, {
-            maxWidth: `${Math.max(120, Math.min(availableWidth, 280))}px`,
+            maxWidth: `${Math.max(120, Math.min(availableWidth, contentMaxWidth))}px`,
           });
         },
       }),
