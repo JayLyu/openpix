@@ -311,10 +311,13 @@ export default function Home() {
     );
   }, [listItems, promptSearch]);
 
-  const storageOccupancyLabel = useMemo(
-    () => formatOpenPixStorageOccupancy(getOpenPixStorageBytes()),
-    [history],
-  );
+  const [storageOccupancyLabel, setStorageOccupancyLabel] = useState("0 KB");
+
+  useEffect(() => {
+    setStorageOccupancyLabel(
+      formatOpenPixStorageOccupancy(getOpenPixStorageBytes()),
+    );
+  }, [history]);
 
   const canGenerate = Boolean(apiKey.trim()) && !customSizeError;
 
