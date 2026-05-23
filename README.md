@@ -1,13 +1,14 @@
 # OpenPix 🎨
 
-Generate images via [OpenRouter](https://openrouter.ai/) API with multiple AI models.
+Generate images with AI via [OpenRouter](https://openrouter.ai/) API.
 
 ## Features
 
-- 🔑 Configure your OpenRouter API key
+- 🔑 Configure your OpenRouter API key (stored locally in browser)
 - 🖼️ Generate images with state-of-the-art models
-- 🔄 Multi-model support: GPT-image-2, Flux, and more
-- 🌐 Web-based interface
+- 🔄 Multi-model support: GPT-image-2, and more coming soon
+- 🌐 Clean, minimal web interface
+- ⚡ Built with Next.js + Tailwind CSS + shadcn/ui
 
 ## Supported Models
 
@@ -26,12 +27,17 @@ cd openpix
 # Install dependencies
 npm install
 
-# Set your OpenRouter API key
-export OPENROUTER_API_KEY=your_key_here
-
-# Start the server
-npm start
+# Start dev server
+npm run dev
 ```
+
+Open [http://localhost:3000](http://localhost:3000), enter your OpenRouter API key, and start generating.
+
+## Tech Stack
+
+- [Next.js](https://nextjs.org/) — React framework
+- [Tailwind CSS](https://tailwindcss.com/) — Styling
+- [shadcn/ui](https://ui.shadcn.com/) — UI components
 
 ## License
 
