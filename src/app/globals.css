@@ -128,3 +128,31 @@
     @apply font-sans;
   }
 }
+
+@layer utilities {
+  .scrollbar-stable {
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 55%, transparent)
+      var(--muted);
+  }
+
+  .scrollbar-stable::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .scrollbar-stable::-webkit-scrollbar-track {
+    background: var(--muted);
+    border-radius: 9999px;
+  }
+
+  .scrollbar-stable::-webkit-scrollbar-thumb {
+    background: color-mix(in oklch, var(--muted-foreground) 55%, transparent);
+    border: 2px solid var(--muted);
+    border-radius: 9999px;
+  }
+
+  .scrollbar-stable::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+  }
+}

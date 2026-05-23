@@ -1,8 +1,14 @@
+import { parseTaskUsage, type TaskUsage } from "@/lib/pricing";
+
 const OPENROUTER_API = "https://openrouter.ai/api/v1";
+
+type TextPart = { type: "text"; text: string };
+type ImagePart = { type: "image_url"; image_url: { url: string } };
+type ContentPart = TextPart | ImagePart;
 
 type ChatMessage = {
   role: "system" | "user";
-  content: string;
+  content: string | ContentPart[];
 };
 
 type ImageUrlPart = {
@@ -10,7 +16,19 @@ type ImageUrlPart = {
 };
 
 type ChatCompletionResponse = {
-  error?: { message?: string };
+  error?: { message?: string; code?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    cost?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+    };
+    completion_tokens_details?: {
+      image_tokens?: number;
+      reasoning_tokens?: number;
+    };
+  };
   choices?: Array<{
     message?: {
       images?: ImageUrlPart[];
@@ -18,19 +36,77 @@ type ChatCompletionResponse = {
   }>;
 };
 
+export function validateOpenRouterApiKey(apiKey: string): string | null {
+  const key = apiKey.trim();
+  if (!key) return "请输入 API Key";
+  if (!key.startsWith("sk-or-")) {
+    return "API Key 格式不正确，请使用 OpenRouter 密钥（以 sk-or- 开头，可在 openrouter.ai/keys 创建）";
+  }
+  return null;
+}
+
+function buildHeaders(apiKey: string): HeadersInit {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey.trim()}`,
+    "Content-Type": "application/json",
+  };
+
+  if (typeof window !== "undefined") {
+    headers["HTTP-Referer"] = window.location.origin;
+    headers["X-Title"] = "OpenPix";
+  }
+
+  return headers;
+}
+
+function parseApiError(status: number, message?: string): string {
+  if (status === 401) {
+    return "API Key 无效或账户未找到，请前往 openrouter.ai/keys 重新创建并粘贴密钥";
+  }
+  if (status === 402) {
+    return "OpenRouter 账户余额不足，请先充值后再试";
+  }
+  if (status === 403) {
+    return "无权访问该模型，请检查 OpenRouter 账户权限";
+  }
+  return message || `请求失败（${status}）`;
+}
+
+function buildUserContent(
+  prompt: string,
+  referenceImages?: string[],
+): string | ContentPart[] {
+  const images = referenceImages?.filter(Boolean) ?? [];
+  if (images.length === 0) return prompt;
+
+  return [
+    ...images.map(
+      (url): ImagePart => ({ type: "image_url", image_url: { url } }),
+    ),
+    { type: "text", text: prompt },
+  ];
+}
+
 export async function generateImage(opts: {
   apiKey: string;
   model: string;
   prompt: string;
   systemPrompt?: string;
   aspectRatio?: string;
-}): Promise<{ images: string[] }> {
+  referenceImages?: string[];
+}): Promise<{ images: string[]; usage?: TaskUsage }> {
+  const keyError = validateOpenRouterApiKey(opts.apiKey);
+  if (keyError) throw new Error(keyError);
+
   const messages: ChatMessage[] = [];
 
   if (opts.systemPrompt?.trim()) {
     messages.push({ role: "system", content: opts.systemPrompt.trim() });
   }
-  messages.push({ role: "user", content: opts.prompt });
+  messages.push({
+    role: "user",
+    content: buildUserContent(opts.prompt, opts.referenceImages),
+  });
 
   const body: Record<string, unknown> = {
     model: opts.model,
@@ -44,16 +120,21 @@ export async function generateImage(opts: {
 
   const res = await fetch(`${OPENROUTER_API}/chat/completions`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${opts.apiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers: buildHeaders(opts.apiKey),
     body: JSON.stringify(body),
   });
 
-  const data = (await res.json()) as ChatCompletionResponse;
+  let data: ChatCompletionResponse = {};
+  try {
+    data = (await res.json()) as ChatCompletionResponse;
+  } catch {
+    if (!res.ok) {
+      throw new Error(parseApiError(res.status));
+    }
+  }
+
   if (!res.ok) {
-    throw new Error(data.error?.message || "生成失败");
+    throw new Error(parseApiError(res.status, data.error?.message));
   }
 
   const images: string[] = [];
@@ -69,5 +150,8 @@ export async function generateImage(opts: {
     throw new Error("未返回图像，请检查模型或提示词");
   }
 
-  return { images };
+  return {
+    images,
+    usage: parseTaskUsage(opts.model, data.usage),
+  };
 }
