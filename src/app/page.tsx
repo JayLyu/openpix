@@ -12,35 +12,27 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-
-type Model = { id: string; name: string; provider: string };
+import { MODELS } from "@/lib/models";
+import { generateImage } from "@/lib/openrouter";
 
 const SIZES = ["1024x1024", "1024x1536", "1536x1024"] as const;
 
 export default function Home() {
   const [apiKey, setApiKey] = useState("");
   const [keySaved, setKeySaved] = useState(false);
-  const [models, setModels] = useState<Model[]>([]);
-  const [model, setModel] = useState("");
+  const [model, setModel] = useState(MODELS[0].id);
   const [size, setSize] = useState("1024x1024");
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [images, setImages] = useState<string[]>([]);
 
-  // Load API key & models on mount
   useEffect(() => {
     const saved = localStorage.getItem("openpix_api_key");
     if (saved) {
       setApiKey(saved);
       setKeySaved(true);
     }
-    fetch("/api/models")
-      .then((r) => r.json())
-      .then((d) => {
-        setModels(d.models);
-        if (d.models.length > 0) setModel(d.models[0].id);
-      });
   }, []);
 
   const saveKey = useCallback(() => {
@@ -69,23 +61,13 @@ export default function Home() {
     setImages([]);
 
     try {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          apiKey: apiKey.trim(),
-          model,
-          prompt: prompt.trim(),
-          size,
-          n: 1,
-        }),
+      const data = await generateImage({
+        apiKey: apiKey.trim(),
+        model,
+        prompt: prompt.trim(),
+        size,
+        n: 1,
       });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Generation failed");
-      }
 
       const urls: string[] = [];
       if (data.data) {
@@ -105,42 +87,38 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col items-center px-4 py-16">
-      {/* Header */}
       <header className="text-center mb-12">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          OpenPix
-        </h1>
+        <h1 className="text-2xl font-semibold tracking-tight">OpenPix</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Generate images with AI via OpenRouter
         </p>
       </header>
 
       <main className="w-full max-w-xl space-y-6">
-        {/* API Key */}
         <div className="space-y-2">
-          <Label htmlFor="apiKey" className="text-xs uppercase tracking-wider text-muted-foreground">
+          <Label
+            htmlFor="apiKey"
+            className="text-xs uppercase tracking-wider text-muted-foreground"
+          >
             API Key
           </Label>
-          <div className="flex gap-2">
-            <Input
-              id="apiKey"
-              type="password"
-              placeholder="sk-or-..."
-              value={apiKey}
-              onChange={(e) => {
-                setApiKey(e.target.value);
-                setKeySaved(false);
-              }}
-              onBlur={saveKey}
-              className="font-mono text-sm"
-            />
-          </div>
+          <Input
+            id="apiKey"
+            type="password"
+            placeholder="sk-or-..."
+            value={apiKey}
+            onChange={(e) => {
+              setApiKey(e.target.value);
+              setKeySaved(false);
+            }}
+            onBlur={saveKey}
+            className="font-mono text-sm"
+          />
           {keySaved && (
             <p className="text-xs text-emerald-500">Saved to local storage</p>
           )}
         </div>
 
-        {/* Model & Size */}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
             <Label className="text-xs uppercase tracking-wider text-muted-foreground">
@@ -151,7 +129,7 @@ export default function Home() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {models.map((m) => (
+                {MODELS.map((m) => (
                   <SelectItem key={m.id} value={m.id}>
                     {m.name}
                   </SelectItem>
@@ -178,9 +156,11 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Prompt */}
         <div className="space-y-2">
-          <Label htmlFor="prompt" className="text-xs uppercase tracking-wider text-muted-foreground">
+          <Label
+            htmlFor="prompt"
+            className="text-xs uppercase tracking-wider text-muted-foreground"
+          >
             Prompt
           </Label>
           <Textarea
@@ -192,7 +172,6 @@ export default function Home() {
           />
         </div>
 
-        {/* Generate Button */}
         <Button
           onClick={generate}
           disabled={loading}
@@ -202,29 +181,25 @@ export default function Home() {
           {loading ? "Generating..." : "Generate"}
         </Button>
 
-        {/* Error */}
         {error && (
           <p className="text-sm text-destructive text-center">{error}</p>
         )}
 
-        {/* Images */}
         {images.length > 0 && (
           <div className="space-y-4 pt-4">
             {images.map((src, i) => (
-              <div key={i} className="rounded-lg overflow-hidden border border-border">
+              <div
+                key={i}
+                className="rounded-lg overflow-hidden border border-border"
+              >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={src}
-                  alt={prompt}
-                  className="w-full"
-                />
+                <img src={src} alt={prompt} className="w-full" />
               </div>
             ))}
           </div>
         )}
       </main>
 
-      {/* Footer */}
       <footer className="mt-16 text-xs text-muted-foreground text-center space-x-2">
         <span>Powered by</span>
         <a
