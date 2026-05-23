@@ -13,26 +13,28 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { MODELS } from "@/lib/models";
+import { SIZE_PRESETS } from "@/lib/sizes";
 import { generateImage } from "@/lib/openrouter";
-
-const SIZES = ["1024x1024", "1024x1536", "1536x1024"] as const;
 
 export default function Home() {
   const [apiKey, setApiKey] = useState("");
   const [keySaved, setKeySaved] = useState(false);
   const [model, setModel] = useState(MODELS[0].id);
-  const [size, setSize] = useState("1024x1024");
+  const [size, setSize] = useState(SIZE_PRESETS[0].id);
+  const [systemPrompt, setSystemPrompt] = useState("");
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [images, setImages] = useState<string[]>([]);
 
   useEffect(() => {
-    const saved = localStorage.getItem("openpix_api_key");
-    if (saved) {
-      setApiKey(saved);
+    const savedKey = localStorage.getItem("openpix_api_key");
+    if (savedKey) {
+      setApiKey(savedKey);
       setKeySaved(true);
     }
+    const savedSystem = localStorage.getItem("openpix_system_prompt");
+    if (savedSystem) setSystemPrompt(savedSystem);
   }, []);
 
   const saveKey = useCallback(() => {
@@ -46,13 +48,25 @@ export default function Home() {
     }
   }, [apiKey]);
 
+  const saveSystemPrompt = useCallback(() => {
+    const trimmed = systemPrompt.trim();
+    if (trimmed) {
+      localStorage.setItem("openpix_system_prompt", trimmed);
+    } else {
+      localStorage.removeItem("openpix_system_prompt");
+    }
+  }, [systemPrompt]);
+
+  const selectedSize =
+    SIZE_PRESETS.find((s) => s.id === size) ?? SIZE_PRESETS[0];
+
   const generate = async () => {
     if (!apiKey.trim()) {
-      setError("Please enter your API key");
+      setError("请输入 API Key");
       return;
     }
     if (!prompt.trim()) {
-      setError("Please enter a prompt");
+      setError("请输入提示词");
       return;
     }
 
@@ -65,21 +79,12 @@ export default function Home() {
         apiKey: apiKey.trim(),
         model,
         prompt: prompt.trim(),
-        size,
-        n: 1,
+        systemPrompt: systemPrompt.trim() || undefined,
+        aspectRatio: selectedSize.aspectRatio,
       });
-
-      const urls: string[] = [];
-      if (data.data) {
-        for (const item of data.data) {
-          if (item.url) urls.push(item.url);
-          else if (item.b64_json)
-            urls.push(`data:image/png;base64,${item.b64_json}`);
-        }
-      }
-      setImages(urls);
+      setImages(data.images);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof Error ? err.message : "生成失败，请重试");
     } finally {
       setLoading(false);
     }
@@ -90,7 +95,7 @@ export default function Home() {
       <header className="text-center mb-12">
         <h1 className="text-2xl font-semibold tracking-tight">OpenPix</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Generate images with AI via OpenRouter
+          通过 OpenRouter 使用 AI 生成图像
         </p>
       </header>
 
@@ -98,7 +103,7 @@ export default function Home() {
         <div className="space-y-2">
           <Label
             htmlFor="apiKey"
-            className="text-xs uppercase tracking-wider text-muted-foreground"
+            className="text-xs tracking-wider text-muted-foreground"
           >
             API Key
           </Label>
@@ -115,14 +120,14 @@ export default function Home() {
             className="font-mono text-sm"
           />
           {keySaved && (
-            <p className="text-xs text-emerald-500">Saved to local storage</p>
+            <p className="text-xs text-emerald-500">已保存到本地浏览器</p>
           )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-              Model
+            <Label className="text-xs tracking-wider text-muted-foreground">
+              模型
             </Label>
             <Select value={model} onValueChange={(v) => v && setModel(v)}>
               <SelectTrigger className="text-sm">
@@ -138,17 +143,17 @@ export default function Home() {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-              Size
+            <Label className="text-xs tracking-wider text-muted-foreground">
+              尺寸
             </Label>
             <Select value={size} onValueChange={(v) => v && setSize(v)}>
               <SelectTrigger className="text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SIZES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
+                {SIZE_PRESETS.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.label} · {s.platform}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -158,14 +163,35 @@ export default function Home() {
 
         <div className="space-y-2">
           <Label
-            htmlFor="prompt"
-            className="text-xs uppercase tracking-wider text-muted-foreground"
+            htmlFor="systemPrompt"
+            className="text-xs tracking-wider text-muted-foreground"
           >
-            Prompt
+            系统提示词
+            <span className="ml-1 text-muted-foreground/70">（可选）</span>
+          </Label>
+          <Textarea
+            id="systemPrompt"
+            placeholder="设定全局风格，例如：扁平插画风格、品牌主色为蓝色、图片中的文字使用中文…"
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+            onBlur={saveSystemPrompt}
+            className="min-h-[72px] resize-none text-sm"
+          />
+          <p className="text-xs text-muted-foreground/70">
+            用于统一画风、品牌调性或输出规范，留空则仅使用下方提示词。
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label
+            htmlFor="prompt"
+            className="text-xs tracking-wider text-muted-foreground"
+          >
+            提示词
           </Label>
           <Textarea
             id="prompt"
-            placeholder="Describe the image you want to generate..."
+            placeholder="描述你想生成的图像…"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             className="min-h-[100px] resize-none text-sm"
@@ -178,7 +204,7 @@ export default function Home() {
           className="w-full"
           size="lg"
         >
-          {loading ? "Generating..." : "Generate"}
+          {loading ? "生成中…" : "生成图像"}
         </Button>
 
         {error && (
@@ -200,8 +226,8 @@ export default function Home() {
         )}
       </main>
 
-      <footer className="mt-16 text-xs text-muted-foreground text-center space-x-2">
-        <span>Powered by</span>
+      <footer className="mt-16 text-xs text-muted-foreground text-center">
+        <span>Powered by </span>
         <a
           href="https://openrouter.ai"
           target="_blank"
@@ -209,15 +235,6 @@ export default function Home() {
           className="underline underline-offset-2 hover:text-foreground transition-colors"
         >
           OpenRouter
-        </a>
-        <span>·</span>
-        <a
-          href="https://github.com/JayLyu/openpix"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline underline-offset-2 hover:text-foreground transition-colors"
-        >
-          GitHub
         </a>
       </footer>
     </div>
