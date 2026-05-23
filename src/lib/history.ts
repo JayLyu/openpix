@@ -15,6 +15,8 @@ export type RunningTask = {
   modelName: string;
   sizeId: string;
   sizeLabel: string;
+  customWidth?: number;
+  customHeight?: number;
   prompt: string;
   referenceImageCount?: number;
   referenceThumbs?: ReferenceThumb[];
@@ -29,6 +31,8 @@ export type GenerationRecord = {
   modelName: string;
   sizeId: string;
   sizeLabel: string;
+  customWidth?: number;
+  customHeight?: number;
   prompt: string;
   imageUrl?: string;
   error?: string;
@@ -47,6 +51,8 @@ function normalizeRecord(raw: Partial<GenerationRecord>): GenerationRecord {
     modelName: raw.modelName ?? "",
     sizeId: raw.sizeId ?? "",
     sizeLabel: raw.sizeLabel ?? "",
+    customWidth: raw.customWidth,
+    customHeight: raw.customHeight,
     prompt: raw.prompt ?? "",
     imageUrl: raw.imageUrl,
     error: raw.error,

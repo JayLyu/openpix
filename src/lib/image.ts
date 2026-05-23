@@ -130,6 +130,55 @@ export async function processReferenceImage(file: File): Promise<ProcessedImage>
   throw new Error("无法将图片压缩到可发送的大小，请换一张更小的图片");
 }
 
+async function loadImageFromUrl(url: string): Promise<HTMLImageElement> {
+  if (url.startsWith("data:")) {
+    return loadImageFromDataUrl(url);
+  }
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error("无法读取图片，请稍后重试");
+  }
+
+  const blob = await response.blob();
+  if (!blob.type.startsWith("image/")) {
+    throw new Error("仅支持图片格式");
+  }
+
+  const file = new File([blob], "reference.jpg", {
+    type: blob.type || "image/jpeg",
+  });
+  return loadImageElement(file);
+}
+
+function encodeProcessedImage(
+  image: HTMLImageElement,
+  name: string,
+): ProcessedImage {
+  for (const maxLongEdge of [MAX_LONG_EDGE, ...FALLBACK_LONG_EDGES]) {
+    try {
+      const encoded = encodeImage(image, maxLongEdge);
+      return {
+        id: crypto.randomUUID(),
+        ...encoded,
+        name,
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error("无法将图片压缩到可发送的大小，请换一张更小的图片");
+}
+
+export async function processReferenceImageFromUrl(
+  url: string,
+  name = "reference.jpg",
+): Promise<ProcessedImage> {
+  const image = await loadImageFromUrl(url);
+  return encodeProcessedImage(image, name);
+}
+
 export function formatImageSize(dataUrl: string): string {
   const bytes = Math.round((dataUrl.length * 3) / 4);
   if (bytes < 1024) return `${bytes} B`;

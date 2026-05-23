@@ -11,6 +11,7 @@ import {
   ChevronUp,
   CircleHelp,
   Download,
+  ImagePlus,
   RotateCcw,
   CircleCheck,
   Search,
@@ -25,10 +26,19 @@ import { ImageLightbox } from "@/components/image-lightbox";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MODELS } from "@/lib/models";
 import {
-  SIZE_PRESETS,
+  CUSTOM_SIZE_ID,
+  DEFAULT_CUSTOM_HEIGHT,
+  DEFAULT_CUSTOM_WIDTH,
   DEFAULT_SIZE_ID,
+  MAX_IMAGE_DIMENSION,
+  MIN_IMAGE_DIMENSION,
+  SIZE_CARD_OPTIONS,
   formatSizePixels,
   formatSizeRecord,
+  formatSizeSummary,
+  parseCustomDimension,
+  resolveSizeOption,
+  validateCustomDimensions,
 } from "@/lib/sizes";
 import {
   type GenerationRecord,
@@ -52,6 +62,7 @@ import {
   MAX_REFERENCE_IMAGES,
   createReferenceThumbnails,
   processReferenceImage,
+  processReferenceImageFromUrl,
 } from "@/lib/image";
 import { downloadImage } from "@/lib/download-image";
 import {
@@ -196,6 +207,12 @@ export default function Home() {
   const [keySaved, setKeySaved] = useState(false);
   const [model, setModel] = useState<string>(MODELS[0].id);
   const [size, setSize] = useState<string>(DEFAULT_SIZE_ID);
+  const [customWidthInput, setCustomWidthInput] = useState(
+    String(DEFAULT_CUSTOM_WIDTH),
+  );
+  const [customHeightInput, setCustomHeightInput] = useState(
+    String(DEFAULT_CUSTOM_HEIGHT),
+  );
   const [sizeOpen, setSizeOpen] = useState(true);
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState("");
@@ -224,6 +241,19 @@ export default function Home() {
     }
     const savedSystem = localStorage.getItem("openpix_system_prompt");
     if (savedSystem) setSystemPrompt(savedSystem);
+    const savedCustomSize = localStorage.getItem("openpix_custom_size");
+    if (savedCustomSize) {
+      try {
+        const parsed = JSON.parse(savedCustomSize) as {
+          width?: number;
+          height?: number;
+        };
+        if (parsed.width) setCustomWidthInput(String(parsed.width));
+        if (parsed.height) setCustomHeightInput(String(parsed.height));
+      } catch {
+        // ignore invalid cache
+      }
+    }
     setHistory(loadHistory());
   }, []);
 
@@ -266,9 +296,36 @@ export default function Home() {
     }
   }, [systemPrompt]);
 
-  const selectedSize =
-    SIZE_PRESETS.find((s) => s.id === size) ??
-    SIZE_PRESETS.find((s) => s.id === DEFAULT_SIZE_ID)!;
+  const saveCustomSize = useCallback(() => {
+    const width = parseCustomDimension(customWidthInput);
+    const height = parseCustomDimension(customHeightInput);
+    if (width == null || height == null) return;
+    localStorage.setItem(
+      "openpix_custom_size",
+      JSON.stringify({ width, height }),
+    );
+  }, [customWidthInput, customHeightInput]);
+
+  const customWidth = parseCustomDimension(customWidthInput);
+  const customHeight = parseCustomDimension(customHeightInput);
+
+  const selectedSize = useMemo(
+    () =>
+      resolveSizeOption(
+        size,
+        customWidth ?? undefined,
+        customHeight ?? undefined,
+      ),
+    [size, customWidth, customHeight],
+  );
+
+  const customSizeError = useMemo(() => {
+    if (size !== CUSTOM_SIZE_ID) return null;
+    if (customWidth == null || customHeight == null) {
+      return "请输入有效的宽度和高度";
+    }
+    return validateCustomDimensions(customWidth, customHeight);
+  }, [size, customWidth, customHeight]);
 
   const selectedModel = MODELS.find((m) => m.id === model) ?? MODELS[0];
 
@@ -297,7 +354,7 @@ export default function Home() {
     [history],
   );
 
-  const canGenerate = Boolean(apiKey.trim());
+  const canGenerate = Boolean(apiKey.trim()) && !customSizeError;
 
   const canConfirmClearCache =
     clearCacheConfirmText.trim() === CLEAR_CACHE_CONFIRM_PHRASE;
@@ -365,6 +422,31 @@ export default function Home() {
     setReferenceImages((prev) => prev.filter((image) => image.id !== id));
   };
 
+  const handleUseAsReference = async (imageUrl: string, name: string) => {
+    if (referenceImages.length >= MAX_REFERENCE_IMAGES) {
+      setError(`参考图已满，最多 ${MAX_REFERENCE_IMAGES} 张`);
+      return;
+    }
+
+    if (referenceImages.some((image) => image.dataUrl === imageUrl)) {
+      setError("该图片已在参考图中");
+      return;
+    }
+
+    setProcessingImage(true);
+    setError("");
+    try {
+      const processed = await processReferenceImageFromUrl(imageUrl, name);
+      setReferenceImages((prev) =>
+        [...prev, processed].slice(0, MAX_REFERENCE_IMAGES),
+      );
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "添加参考图失败");
+    } finally {
+      setProcessingImage(false);
+    }
+  };
+
   const requestRetry = (record: GenerationRecord) => {
     setRetryRecord(record);
   };
@@ -373,6 +455,14 @@ export default function Home() {
     if (!retryRecord) return;
     setModel(retryRecord.model);
     setSize(retryRecord.sizeId);
+    if (
+      retryRecord.sizeId === CUSTOM_SIZE_ID &&
+      retryRecord.customWidth &&
+      retryRecord.customHeight
+    ) {
+      setCustomWidthInput(String(retryRecord.customWidth));
+      setCustomHeightInput(String(retryRecord.customHeight));
+    }
     setPrompt(retryRecord.prompt);
     setError("");
     setRetryRecord(null);
@@ -388,6 +478,10 @@ export default function Home() {
       setError("请输入提示词");
       return;
     }
+    if (customSizeError) {
+      setError(customSizeError);
+      return;
+    }
 
     setError("");
 
@@ -395,6 +489,10 @@ export default function Home() {
     const startedAt = Date.now();
     const taskModel = model;
     const taskSize = size;
+    const taskCustomWidth =
+      taskSize === CUSTOM_SIZE_ID ? customWidth ?? undefined : undefined;
+    const taskCustomHeight =
+      taskSize === CUSTOM_SIZE_ID ? customHeight ?? undefined : undefined;
     const taskPrompt = prompt.trim();
     const taskSystemPrompt = systemPrompt.trim() || undefined;
     const taskAspectRatio = selectedSize.aspectRatio;
@@ -426,6 +524,8 @@ export default function Home() {
         modelName: taskModelName,
         sizeId: taskSize,
         sizeLabel: taskSizeLabel,
+        customWidth: taskCustomWidth,
+        customHeight: taskCustomHeight,
         prompt: taskPrompt,
         referenceImageCount: taskReferenceThumbs?.length,
         referenceThumbs: taskReferenceThumbs,
@@ -459,6 +559,8 @@ export default function Home() {
             modelName: taskModelName,
             sizeId: taskSize,
             sizeLabel: taskSizeLabel,
+            customWidth: taskCustomWidth,
+            customHeight: taskCustomHeight,
             prompt: taskPrompt,
             imageUrl,
             referenceThumbs: taskReferenceThumbs,
@@ -488,6 +590,8 @@ export default function Home() {
           modelName: taskModelName,
           sizeId: taskSize,
           sizeLabel: taskSizeLabel,
+          customWidth: taskCustomWidth,
+          customHeight: taskCustomHeight,
           prompt: taskPrompt,
           error: message,
           referenceThumbs: taskReferenceThumbs,
@@ -639,8 +743,7 @@ export default function Home() {
                 <span className="flex min-w-0 items-center gap-1.5">
                   {!sizeOpen && (
                     <span className="truncate text-[10px] font-normal normal-case tracking-normal text-muted-foreground/90">
-                      {selectedSize.aspectRatio} ·{" "}
-                      {formatSizePixels(selectedSize)} · {selectedSize.platform}
+                      {formatSizeSummary(selectedSize)}
                     </span>
                   )}
                   <ChevronDown
@@ -652,52 +755,123 @@ export default function Home() {
                 </span>
               </button>
               {sizeOpen && (
-                <div className="grid grid-cols-2 gap-2">
-                  {SIZE_PRESETS.map((s) => {
-                    const selected = size === s.id;
-                    return (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => setSize(s.id)}
-                        className={cn(
-                          "rounded-lg border p-2.5 text-left transition-colors min-w-0",
-                          selected
-                            ? "border-primary bg-primary/5 ring-1 ring-primary/40"
-                            : "border-border hover:border-foreground/20 hover:bg-muted/40",
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-1.5">
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium leading-snug truncate">
-                              {s.label}
-                            </p>
-                            <p className="mt-0.5 text-[10px] text-muted-foreground truncate">
-                              {s.aspectRatio} · {formatSizePixels(s)}
-                            </p>
-                            <p className="mt-0.5 text-[10px] text-muted-foreground/80 truncate">
-                              {s.platform}
-                            </p>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    {SIZE_CARD_OPTIONS.map((s) => {
+                      const selected = size === s.id;
+                      const isCustom = s.id === CUSTOM_SIZE_ID;
+                      const displaySize = isCustom
+                        ? resolveSizeOption(
+                            CUSTOM_SIZE_ID,
+                            customWidth ?? undefined,
+                            customHeight ?? undefined,
+                          )
+                        : s;
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => setSize(s.id)}
+                          className={cn(
+                            "rounded-lg border p-2.5 text-left transition-colors min-w-0",
+                            selected
+                              ? "border-primary bg-primary/5 ring-1 ring-primary/40"
+                              : "border-border hover:border-foreground/20 hover:bg-muted/40",
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-1.5">
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium leading-snug truncate">
+                                {s.label}
+                              </p>
+                              <p className="mt-0.5 text-[10px] text-muted-foreground truncate">
+                                {isCustom
+                                  ? formatSizePixels(displaySize)
+                                  : `${s.aspectRatio} · ${formatSizePixels(s)}`}
+                              </p>
+                              <p className="mt-0.5 text-[10px] text-muted-foreground/80 truncate">
+                                {s.platform}
+                              </p>
+                            </div>
+                            <span
+                              className={cn(
+                                "mt-0.5 size-3.5 shrink-0 rounded-full border-2 transition-colors",
+                                selected
+                                  ? "border-primary bg-primary"
+                                  : "border-muted-foreground/40",
+                              )}
+                              aria-hidden
+                            >
+                              {selected && (
+                                <span className="flex size-full items-center justify-center">
+                                  <span className="size-1 rounded-full bg-primary-foreground" />
+                                </span>
+                              )}
+                            </span>
                           </div>
-                          <span
-                            className={cn(
-                              "mt-0.5 size-3.5 shrink-0 rounded-full border-2 transition-colors",
-                              selected
-                                ? "border-primary bg-primary"
-                                : "border-muted-foreground/40",
-                            )}
-                            aria-hidden
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {size === CUSTOM_SIZE_ID && (
+                    <div className="space-y-2 rounded-lg border border-border p-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label
+                            htmlFor="customWidth"
+                            className="text-[10px] text-muted-foreground"
                           >
-                            {selected && (
-                              <span className="flex size-full items-center justify-center">
-                                <span className="size-1 rounded-full bg-primary-foreground" />
-                              </span>
-                            )}
-                          </span>
+                            宽度（px）
+                          </Label>
+                          <Input
+                            id="customWidth"
+                            type="number"
+                            inputMode="numeric"
+                            min={MIN_IMAGE_DIMENSION}
+                            max={MAX_IMAGE_DIMENSION}
+                            step={1}
+                            value={customWidthInput}
+                            onChange={(event) =>
+                              setCustomWidthInput(event.target.value)
+                            }
+                            onBlur={saveCustomSize}
+                            className="h-8 text-sm"
+                          />
                         </div>
-                      </button>
-                    );
-                  })}
+                        <div className="space-y-1">
+                          <Label
+                            htmlFor="customHeight"
+                            className="text-[10px] text-muted-foreground"
+                          >
+                            高度（px）
+                          </Label>
+                          <Input
+                            id="customHeight"
+                            type="number"
+                            inputMode="numeric"
+                            min={MIN_IMAGE_DIMENSION}
+                            max={MAX_IMAGE_DIMENSION}
+                            step={1}
+                            value={customHeightInput}
+                            onChange={(event) =>
+                              setCustomHeightInput(event.target.value)
+                            }
+                            onBlur={saveCustomSize}
+                            className="h-8 text-sm"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground/80">
+                        宽高范围 {MIN_IMAGE_DIMENSION}–{MAX_IMAGE_DIMENSION}{" "}
+                        像素，需为整数
+                      </p>
+                      {customSizeError && (
+                        <p className="text-[10px] text-destructive">
+                          {customSizeError}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -981,18 +1155,41 @@ export default function Home() {
                               className="w-full h-full object-contain bg-muted"
                             />
                           </button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-xs"
-                            className="absolute bottom-1 right-1 bg-background/80 hover:bg-background"
-                            onClick={() =>
-                              downloadImage(item.imageUrl!, item.createdAt)
-                            }
-                            aria-label="下载图片"
-                          >
-                            <Download />
-                          </Button>
+                          <div className="absolute bottom-1 right-1 flex items-center gap-1">
+                            <Tooltip
+                              content="设为参考图"
+                              contentClassName="whitespace-nowrap"
+                            >
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-xs"
+                                className="bg-background/80 hover:bg-background"
+                                disabled={processingImage}
+                                onClick={() =>
+                                  void handleUseAsReference(
+                                    item.imageUrl!,
+                                    `OpenPix-${item.createdAt}.jpg`,
+                                  )
+                                }
+                                aria-label="设为参考图"
+                              >
+                                <ImagePlus />
+                              </Button>
+                            </Tooltip>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              className="bg-background/80 hover:bg-background"
+                              onClick={() =>
+                                downloadImage(item.imageUrl!, item.createdAt)
+                              }
+                              aria-label="下载图片"
+                            >
+                              <Download />
+                            </Button>
+                          </div>
                         </>
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">

@@ -59,16 +59,142 @@ export const SIZE_PRESETS = [
 
 export type SizePreset = (typeof SIZE_PRESETS)[number];
 
+export type SizeOption = {
+  id: string;
+  label: string;
+  platform: string;
+  aspectRatio: string;
+  width: number;
+  height: number;
+};
+
+export const CUSTOM_SIZE_ID = "custom";
 export const DEFAULT_SIZE_ID = "9:16";
+export const DEFAULT_CUSTOM_WIDTH = 1024;
+export const DEFAULT_CUSTOM_HEIGHT = 1024;
+export const MIN_IMAGE_DIMENSION = 512;
+export const MAX_IMAGE_DIMENSION = 1536;
 
-export function formatSizePixels(preset: SizePreset) {
-  return `${preset.width}×${preset.height}`;
+export const CUSTOM_SIZE_OPTION: SizeOption = {
+  id: CUSTOM_SIZE_ID,
+  label: "自定义",
+  platform: "自定义尺寸",
+  aspectRatio: "1:1",
+  width: DEFAULT_CUSTOM_WIDTH,
+  height: DEFAULT_CUSTOM_HEIGHT,
+};
+
+const API_ASPECT_RATIOS: Array<{ ratio: string; value: number }> = [
+  { ratio: "1:1", value: 1 },
+  { ratio: "2:3", value: 2 / 3 },
+  { ratio: "3:2", value: 3 / 2 },
+  { ratio: "3:4", value: 3 / 4 },
+  { ratio: "4:3", value: 4 / 3 },
+  { ratio: "4:5", value: 4 / 5 },
+  { ratio: "5:4", value: 5 / 4 },
+  { ratio: "9:16", value: 9 / 16 },
+  { ratio: "16:9", value: 16 / 9 },
+  { ratio: "21:9", value: 21 / 9 },
+];
+
+function gcd(a: number, b: number): number {
+  let x = Math.abs(a);
+  let y = Math.abs(b);
+  while (y !== 0) {
+    const remain = x % y;
+    x = y;
+    y = remain;
+  }
+  return x || 1;
 }
 
-export function formatSizeOption(preset: SizePreset) {
-  return `${preset.label} (${formatSizePixels(preset)})`;
+export function computeAspectRatio(width: number, height: number): string {
+  const divisor = gcd(width, height);
+  return `${width / divisor}:${height / divisor}`;
 }
 
-export function formatSizeRecord(preset: SizePreset) {
-  return `${formatSizeOption(preset)} · ${preset.platform}`;
+export function resolveAspectRatioForApi(width: number, height: number): string {
+  const simplified = computeAspectRatio(width, height);
+  if (API_ASPECT_RATIOS.some((item) => item.ratio === simplified)) {
+    return simplified;
+  }
+
+  const target = width / height;
+  let closest = API_ASPECT_RATIOS[0];
+  let smallestDiff = Math.abs(target - closest.value);
+
+  for (const item of API_ASPECT_RATIOS) {
+    const diff = Math.abs(target - item.value);
+    if (diff < smallestDiff) {
+      smallestDiff = diff;
+      closest = item;
+    }
+  }
+
+  return closest.ratio;
 }
+
+export function parseCustomDimension(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const num = Number(trimmed);
+  if (!Number.isFinite(num) || !Number.isInteger(num)) return null;
+  return num;
+}
+
+export function validateCustomDimensions(
+  width: number,
+  height: number,
+): string | null {
+  if (width < MIN_IMAGE_DIMENSION || width > MAX_IMAGE_DIMENSION) {
+    return `宽度需在 ${MIN_IMAGE_DIMENSION}–${MAX_IMAGE_DIMENSION} 像素之间`;
+  }
+  if (height < MIN_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+    return `高度需在 ${MIN_IMAGE_DIMENSION}–${MAX_IMAGE_DIMENSION} 像素之间`;
+  }
+  return null;
+}
+
+export function resolveSizeOption(
+  sizeId: string,
+  customWidth?: number,
+  customHeight?: number,
+): SizeOption {
+  if (sizeId === CUSTOM_SIZE_ID) {
+    const width = customWidth ?? DEFAULT_CUSTOM_WIDTH;
+    const height = customHeight ?? DEFAULT_CUSTOM_HEIGHT;
+    return {
+      ...CUSTOM_SIZE_OPTION,
+      width,
+      height,
+      aspectRatio: resolveAspectRatioForApi(width, height),
+    };
+  }
+
+  const preset =
+    SIZE_PRESETS.find((item) => item.id === sizeId) ??
+    SIZE_PRESETS.find((item) => item.id === DEFAULT_SIZE_ID)!;
+
+  return preset;
+}
+
+export function formatSizePixels(option: Pick<SizeOption, "width" | "height">) {
+  return `${option.width}×${option.height}`;
+}
+
+export function formatSizeOption(option: SizeOption) {
+  return `${option.label} (${formatSizePixels(option)})`;
+}
+
+export function formatSizeRecord(option: SizeOption) {
+  return `${formatSizeOption(option)} · ${option.platform}`;
+}
+
+export function formatSizeSummary(option: SizeOption) {
+  return `${option.aspectRatio} · ${formatSizePixels(option)} · ${option.platform}`;
+}
+
+export const SIZE_CARD_OPTIONS: SizeOption[] = [
+  ...SIZE_PRESETS,
+  CUSTOM_SIZE_OPTION,
+];
