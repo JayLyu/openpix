@@ -55,6 +55,22 @@ export const SIZE_PRESETS = [
     width: 832,
     height: 1248,
   },
+  {
+    id: "2048x640",
+    label: "2048×640",
+    platform: "球房前台LED",
+    aspectRatio: "16:5",
+    width: 2048,
+    height: 640,
+  },
+  {
+    id: "2304x640",
+    label: "2304×640",
+    platform: "球房前台LED",
+    aspectRatio: "18:5",
+    width: 2304,
+    height: 640,
+  },
 ] as const;
 
 export type SizePreset = (typeof SIZE_PRESETS)[number];
