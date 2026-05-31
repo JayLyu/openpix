@@ -74,7 +74,15 @@ export const SIZE_PRESETS = [
   {
     id: "384x768",
     label: "384×768",
-    platform: "竖屏窄屏",
+    platform: "竖屏1 · 960×1920",
+    aspectRatio: "1:2",
+    width: 512,
+    height: 1024,
+  },
+  {
+    id: "448x896",
+    label: "448×896",
+    platform: "竖屏2 · 1120×2240",
     aspectRatio: "1:2",
     width: 512,
     height: 1024,
