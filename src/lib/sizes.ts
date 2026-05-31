@@ -71,6 +71,22 @@ export const SIZE_PRESETS = [
     width: 2304,
     height: 640,
   },
+  {
+    id: "384x768",
+    label: "384×768",
+    platform: "竖屏窄屏",
+    aspectRatio: "1:2",
+    width: 512,
+    height: 1024,
+  },
+  {
+    id: "3840x2160",
+    label: "3840×2160",
+    platform: "4K 横屏",
+    aspectRatio: "16:9",
+    width: 2048,
+    height: 1152,
+  },
 ] as const;
 
 export type SizePreset = (typeof SIZE_PRESETS)[number];
@@ -100,8 +116,41 @@ export const CUSTOM_SIZE_OPTION: SizeOption = {
   height: DEFAULT_CUSTOM_HEIGHT,
 };
 
+/** 将目标像素等比缩放到 VLM 生图允许的 512–2048 范围内 */
+export function scaleDimensionsToVlmRange(
+  width: number,
+  height: number,
+): { width: number; height: number } {
+  let w = width;
+  let h = height;
+
+  const longEdge = Math.max(w, h);
+  if (longEdge > MAX_IMAGE_DIMENSION) {
+    const ratio = MAX_IMAGE_DIMENSION / longEdge;
+    w = Math.max(1, Math.round(w * ratio));
+    h = Math.max(1, Math.round(h * ratio));
+  }
+
+  const shortEdge = Math.min(w, h);
+  if (shortEdge < MIN_IMAGE_DIMENSION) {
+    const ratio = MIN_IMAGE_DIMENSION / shortEdge;
+    w = Math.max(1, Math.round(w * ratio));
+    h = Math.max(1, Math.round(h * ratio));
+  }
+
+  const longEdgeAfter = Math.max(w, h);
+  if (longEdgeAfter > MAX_IMAGE_DIMENSION) {
+    const ratio = MAX_IMAGE_DIMENSION / longEdgeAfter;
+    w = Math.max(1, Math.round(w * ratio));
+    h = Math.max(1, Math.round(h * ratio));
+  }
+
+  return { width: w, height: h };
+}
+
 const API_ASPECT_RATIOS: Array<{ ratio: string; value: number }> = [
   { ratio: "1:1", value: 1 },
+  { ratio: "1:2", value: 1 / 2 },
   { ratio: "2:3", value: 2 / 3 },
   { ratio: "3:2", value: 3 / 2 },
   { ratio: "3:4", value: 3 / 4 },
