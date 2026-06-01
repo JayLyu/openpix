@@ -60,6 +60,7 @@ import { generateImage, validateOpenRouterApiKey } from "@/lib/openrouter";
 import {
   type ProcessedImage,
   MAX_REFERENCE_IMAGES,
+  createImageThumbnail,
   createReferenceThumbnails,
   processReferenceImage,
   processReferenceImageFromUrl,
@@ -82,6 +83,24 @@ type PreviewImage = {
 };
 
 const CLEAR_CACHE_CONFIRM_PHRASE = "确认清理";
+
+function getRecordImageThumb(record: GenerationRecord): string | undefined {
+  return record.imageThumbUrl ?? record.imageUrl;
+}
+
+function isDataImageUrl(url: string): boolean {
+  return url.startsWith("data:image/");
+}
+
+async function createOptionalImageThumbnail(
+  imageUrl: string,
+): Promise<string | undefined> {
+  try {
+    return await createImageThumbnail(imageUrl);
+  } catch {
+    return undefined;
+  }
+}
 
 function ReferenceThumbRow({ thumbs }: { thumbs: ReferenceThumb[] }) {
   return (
@@ -195,6 +214,73 @@ export default function Home() {
   const [promptSearch, setPromptSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const getRecordImageUrl = useCallback(
+    (record: GenerationRecord) =>
+      record.imageUrl && !isDataImageUrl(record.imageUrl)
+        ? record.imageUrl
+        : undefined,
+    [],
+  );
+
+  const migrateLegacyHistoryImages = useCallback(
+    async (records: GenerationRecord[]) => {
+      const legacyRecords = records.filter(
+        (record) => record.imageUrl && isDataImageUrl(record.imageUrl),
+      );
+      if (legacyRecords.length === 0) return;
+
+      try {
+        const migrated = await Promise.all(
+          records.map(async (record) => {
+            if (!record.imageUrl || !isDataImageUrl(record.imageUrl)) {
+              return record;
+            }
+            const imageThumbUrl =
+              record.imageThumbUrl ??
+              (await createImageThumbnail(record.imageUrl));
+            return {
+              ...record,
+              imageThumbUrl,
+              imageUrl: undefined,
+            };
+          }),
+        );
+
+        setHistory(() => appendHistoryRecords([], migrated));
+      } catch {
+        setError("旧历史图片迁移失败，请先清理缓存后再生成");
+      }
+    },
+    [],
+  );
+
+  const openRecordPreview = useCallback(
+    async (record: GenerationRecord) => {
+      const imageUrl = getRecordImageUrl(record);
+      if (!imageUrl) {
+        setError("原图 URL 不存在，仅保留了缩略图");
+        return;
+      }
+      setPreviewImage({
+        src: imageUrl,
+        alt: record.prompt,
+      });
+    },
+    [getRecordImageUrl],
+  );
+
+  const downloadRecordImage = useCallback(
+    async (record: GenerationRecord) => {
+      const imageUrl = getRecordImageUrl(record);
+      if (!imageUrl) {
+        setError("原图 URL 不存在，仅保留了缩略图");
+        return;
+      }
+      downloadImage(imageUrl, record.createdAt);
+    },
+    [getRecordImageUrl],
+  );
+
   useEffect(() => {
     const savedKey = localStorage.getItem("openpix_api_key");
     if (savedKey) {
@@ -216,8 +302,10 @@ export default function Home() {
         // ignore invalid cache
       }
     }
-    setHistory(loadHistory());
-  }, []);
+    const loadedHistory = loadHistory();
+    setHistory(loadedHistory);
+    void migrateLegacyHistoryImages(loadedHistory);
+  }, [migrateLegacyHistoryImages]);
 
   useEffect(() => {
     void getUsdToCnyRate().then(({ rate, source }) => {
@@ -344,8 +432,8 @@ export default function Home() {
     closeClearCacheDialog();
   };
 
-  const handleDelete = (id: string) => {
-    setHistory((prev) => deleteHistoryRecord(prev, id));
+  const handleDelete = (record: GenerationRecord) => {
+    setHistory((prev) => deleteHistoryRecord(prev, record.id));
   };
 
   const requestDelete = (record: GenerationRecord) => {
@@ -354,7 +442,7 @@ export default function Home() {
 
   const confirmDelete = () => {
     if (!deleteRecord) return;
-    handleDelete(deleteRecord.id);
+    handleDelete(deleteRecord);
     setDeleteRecord(null);
   };
 
@@ -420,6 +508,15 @@ export default function Home() {
     } finally {
       setProcessingImage(false);
     }
+  };
+
+  const handleUseRecordAsReference = async (record: GenerationRecord) => {
+    const imageUrl = getRecordImageUrl(record);
+    if (!imageUrl) {
+      setError("原图 URL 不存在，仅保留了缩略图");
+      return;
+    }
+    await handleUseAsReference(imageUrl, `OpenPix-${record.createdAt}.jpg`);
   };
 
   const requestRetry = (record: GenerationRecord) => {
@@ -524,8 +621,8 @@ export default function Home() {
         const perImageUsage = data.usage
           ? splitUsageCost(data.usage, data.images.length)
           : undefined;
-        const newRecords: GenerationRecord[] = data.images.map(
-          (imageUrl, index) => ({
+        const newRecords: GenerationRecord[] = await Promise.all(
+          data.images.map(async (imageUrl, index) => ({
             id: crypto.randomUUID(),
             startedAt,
             createdAt: completedAt - index,
@@ -537,10 +634,11 @@ export default function Home() {
             customWidth: taskCustomWidth,
             customHeight: taskCustomHeight,
             prompt: taskPrompt,
-            imageUrl,
+            imageUrl: isDataImageUrl(imageUrl) ? undefined : imageUrl,
+            imageThumbUrl: await createOptionalImageThumbnail(imageUrl),
             referenceThumbs: taskReferenceThumbs,
             usage: perImageUsage,
-          }),
+          })),
         );
 
         setRunningTasks((prev) => prev.filter((t) => t.id !== taskId));
@@ -1112,28 +1210,24 @@ export default function Home() {
                 }
 
                 const failed = Boolean(item.error);
+                const displayImageUrl = getRecordImageThumb(item);
                 return (
                   <article
                     key={item.id}
                     className="flex gap-4 rounded-lg border border-border p-3"
                   >
                     <div className="relative shrink-0 w-28 h-28 rounded-md overflow-hidden border border-border bg-muted">
-                      {item.imageUrl ? (
+                      {displayImageUrl ? (
                         <>
                           <button
                             type="button"
                             className="w-full h-full cursor-zoom-in"
-                            onClick={() =>
-                              setPreviewImage({
-                                src: item.imageUrl!,
-                                alt: item.prompt,
-                              })
-                            }
+                            onClick={() => void openRecordPreview(item)}
                             aria-label="查看大图"
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
-                              src={item.imageUrl}
+                              src={displayImageUrl}
                               alt={item.prompt}
                               className="w-full h-full object-contain bg-muted"
                             />
@@ -1150,10 +1244,7 @@ export default function Home() {
                                 className="bg-background/80 hover:bg-background"
                                 disabled={processingImage}
                                 onClick={() =>
-                                  void handleUseAsReference(
-                                    item.imageUrl!,
-                                    `OpenPix-${item.createdAt}.jpg`,
-                                  )
+                                  void handleUseRecordAsReference(item)
                                 }
                                 aria-label="设为参考图"
                               >
@@ -1165,9 +1256,7 @@ export default function Home() {
                               variant="ghost"
                               size="icon-xs"
                               className="bg-background/80 hover:bg-background"
-                              onClick={() =>
-                                downloadImage(item.imageUrl!, item.createdAt)
-                              }
+                              onClick={() => void downloadRecordImage(item)}
                               aria-label="下载图片"
                             >
                               <Download />

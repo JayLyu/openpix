@@ -1,6 +1,10 @@
 const OPENPIX_KEY_PREFIX = "openpix_";
 const OPENPIX_PRESERVED_KEYS = new Set(["openpix_theme"]);
 
+function estimateLocalStorageEntryBytes(key: string, value: string): number {
+  return (key.length + value.length) * 2;
+}
+
 export function getOpenPixStorageBytes(): number {
   if (typeof window === "undefined") return 0;
 
@@ -11,7 +15,7 @@ export function getOpenPixStorageBytes(): number {
     if (OPENPIX_PRESERVED_KEYS.has(key)) continue;
     const value = localStorage.getItem(key);
     if (value == null) continue;
-    total += new Blob([key, value]).size;
+    total += estimateLocalStorageEntryBytes(key, value);
   }
   return total;
 }

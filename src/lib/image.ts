@@ -222,6 +222,11 @@ function renderContainThumbnail(
   return canvas.toDataURL("image/jpeg", 0.7);
 }
 
+export async function createImageThumbnail(dataUrl: string): Promise<string> {
+  const element = await loadImageFromDataUrl(dataUrl);
+  return renderContainThumbnail(element, THUMB_SIZE);
+}
+
 export async function createReferenceThumbnails(
   images: Pick<ProcessedImage, "id" | "name" | "dataUrl">[],
 ): Promise<Array<{ id: string; name: string; dataUrl: string }>> {

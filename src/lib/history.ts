@@ -1,6 +1,7 @@
 import type { TaskUsage } from "@/lib/pricing";
 
 const STORAGE_KEY = "openpix_history";
+const HISTORY_STORAGE_BUDGET_BYTES = 4 * 1024 * 1024;
 
 export type ReferenceThumb = {
   id: string;
@@ -34,6 +35,7 @@ export type GenerationRecord = {
   customWidth?: number;
   customHeight?: number;
   prompt: string;
+  imageThumbUrl?: string;
   imageUrl?: string;
   error?: string;
   referenceThumbs?: ReferenceThumb[];
@@ -54,11 +56,57 @@ function normalizeRecord(raw: Partial<GenerationRecord>): GenerationRecord {
     customWidth: raw.customWidth,
     customHeight: raw.customHeight,
     prompt: raw.prompt ?? "",
+    imageThumbUrl: raw.imageThumbUrl,
     imageUrl: raw.imageUrl,
     error: raw.error,
     referenceThumbs: raw.referenceThumbs,
     usage: raw.usage,
   };
+}
+
+function compareRecordsDesc(a: GenerationRecord, b: GenerationRecord): number {
+  return b.startedAt - a.startedAt || b.createdAt - a.createdAt;
+}
+
+function estimateLocalStorageEntryBytes(key: string, value: string): number {
+  return (key.length + value.length) * 2;
+}
+
+function encodeHistory(records: GenerationRecord[]): string {
+  return JSON.stringify(records);
+}
+
+function estimateHistoryStorageBytes(records: GenerationRecord[]): number {
+  return estimateLocalStorageEntryBytes(STORAGE_KEY, encodeHistory(records));
+}
+
+function saveHistoryWithinBudget(
+  records: GenerationRecord[],
+  minimumRecordsToKeep = 0,
+): GenerationRecord[] {
+  const next = [...records].sort(compareRecordsDesc);
+
+  while (
+    next.length > minimumRecordsToKeep &&
+    estimateHistoryStorageBytes(next) > HISTORY_STORAGE_BUDGET_BYTES
+  ) {
+    next.pop();
+  }
+
+  while (next.length > 0) {
+    try {
+      localStorage.setItem(STORAGE_KEY, encodeHistory(next));
+      return next;
+    } catch {
+      if (next.length <= minimumRecordsToKeep) {
+        throw new Error("History storage quota exceeded");
+      }
+      next.pop();
+    }
+  }
+
+  localStorage.removeItem(STORAGE_KEY);
+  return next;
 }
 
 export function formatDuration(ms: number): string {
@@ -83,16 +131,14 @@ export function loadHistory(): GenerationRecord[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Partial<GenerationRecord>[];
     if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map(normalizeRecord)
-      .sort((a, b) => b.startedAt - a.startedAt);
+    return parsed.map(normalizeRecord).sort(compareRecordsDesc);
   } catch {
     return [];
   }
 }
 
 export function saveHistory(records: GenerationRecord[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  saveHistoryWithinBudget(records);
 }
 
 export function deleteHistoryRecord(
@@ -108,9 +154,6 @@ export function appendHistoryRecords(
   records: GenerationRecord[],
   newRecords: GenerationRecord[],
 ): GenerationRecord[] {
-  const next = [...newRecords, ...records].sort(
-    (a, b) => b.startedAt - a.startedAt,
-  );
-  saveHistory(next);
-  return next;
+  const next = [...newRecords, ...records].sort(compareRecordsDesc);
+  return saveHistoryWithinBudget(next, Math.min(newRecords.length, 1));
 }
