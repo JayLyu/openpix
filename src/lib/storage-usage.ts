@@ -1,3 +1,8 @@
+import {
+  getRecordImagesCount,
+  getRecordImagesTotalBytes,
+} from "@/lib/image-store";
+
 const OPENPIX_KEY_PREFIX = "openpix_";
 const OPENPIX_PRESERVED_KEYS = new Set(["openpix_theme"]);
 
@@ -5,7 +10,14 @@ function estimateLocalStorageEntryBytes(key: string, value: string): number {
   return (key.length + value.length) * 2;
 }
 
-export function getOpenPixStorageBytes(): number {
+export type OpenPixStorageBreakdown = {
+  localStorageBytes: number;
+  indexedDbBytes: number;
+  indexedDbImageCount: number;
+  totalBytes: number;
+};
+
+function getOpenPixLocalStorageBytes(): number {
   if (typeof window === "undefined") return 0;
 
   let total = 0;
@@ -18,6 +30,26 @@ export function getOpenPixStorageBytes(): number {
     total += estimateLocalStorageEntryBytes(key, value);
   }
   return total;
+}
+
+export async function getOpenPixStorageBreakdown(): Promise<OpenPixStorageBreakdown> {
+  const [localStorageBytes, indexedDbBytes, indexedDbImageCount] =
+    await Promise.all([
+      Promise.resolve(getOpenPixLocalStorageBytes()),
+      getRecordImagesTotalBytes(),
+      getRecordImagesCount(),
+    ]);
+  return {
+    localStorageBytes,
+    indexedDbBytes,
+    indexedDbImageCount,
+    totalBytes: localStorageBytes + indexedDbBytes,
+  };
+}
+
+export async function getOpenPixStorageBytes(): Promise<number> {
+  const breakdown = await getOpenPixStorageBreakdown();
+  return breakdown.totalBytes;
 }
 
 export function formatOpenPixStorageOccupancy(bytes: number): string {
@@ -33,7 +65,7 @@ export function formatOpenPixStorageOccupancy(bytes: number): string {
   return kb < 10 ? `${kb.toFixed(1)} KB` : `${Math.round(kb)} KB`;
 }
 
-export function clearOpenPixCache(): void {
+export async function clearOpenPixCache(): Promise<void> {
   if (typeof window === "undefined") return;
 
   const keysToRemove: string[] = [];
@@ -46,4 +78,7 @@ export function clearOpenPixCache(): void {
   for (const key of keysToRemove) {
     localStorage.removeItem(key);
   }
+
+  const { clearAllRecordImages } = await import("@/lib/image-store");
+  await clearAllRecordImages();
 }

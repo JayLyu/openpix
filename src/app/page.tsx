@@ -63,9 +63,13 @@ import {
 } from "@/lib/image";
 import { downloadImage } from "@/lib/download-image";
 import {
+  getRecordImageBlob,
+  saveRecordImage,
+} from "@/lib/image-store";
+import {
   clearOpenPixCache,
-  formatOpenPixStorageOccupancy,
-  getOpenPixStorageBytes,
+  getOpenPixStorageBreakdown,
+  type OpenPixStorageBreakdown,
 } from "@/lib/storage-usage";
 type ListItem =
   | ({ kind: "running" } & RunningTask)
@@ -79,7 +83,7 @@ type PreviewImage = {
 const CLEAR_CACHE_CONFIRM_PHRASE = "确认清理";
 
 function getRecordImageThumb(record: GenerationRecord): string | undefined {
-  return record.imageThumbUrl ?? record.imageUrl ?? record.transientImageUrl;
+  return record.imageThumbUrl ?? record.imageUrl;
 }
 
 function isDataImageUrl(url: string): boolean {
@@ -244,64 +248,61 @@ export default function Home() {
   const [promptSearch, setPromptSearch] = useState("");
   const [mobileFormOpen, setMobileFormOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageObjectUrlCacheRef = useRef(new Map<string, string>());
 
-  const getRecordImageUrl = useCallback(
-    (record: GenerationRecord) =>
-      record.imageUrl && !isDataImageUrl(record.imageUrl)
-        ? record.imageUrl
-        : record.transientImageUrl,
-    [],
-  );
-
-  const getRecordReferenceSource = useCallback((record: GenerationRecord) => {
-    const imageUrl =
-      record.imageUrl && !isDataImageUrl(record.imageUrl)
-        ? record.imageUrl
-        : record.transientImageUrl;
-    if (imageUrl) return { imageUrl, isThumbnail: false };
-    if (record.imageThumbUrl) {
-      return { imageUrl: record.imageThumbUrl, isThumbnail: true };
-    }
-    return undefined;
+  const revokeRecordObjectUrl = useCallback((recordId: string) => {
+    const cached = imageObjectUrlCacheRef.current.get(recordId);
+    if (!cached) return;
+    URL.revokeObjectURL(cached);
+    imageObjectUrlCacheRef.current.delete(recordId);
   }, []);
 
-  const migrateLegacyHistoryImages = useCallback(
-    async (records: GenerationRecord[]) => {
-      const legacyRecords = records.filter(
-        (record) => record.imageUrl && isDataImageUrl(record.imageUrl),
-      );
-      if (legacyRecords.length === 0) return;
+  const revokeAllRecordObjectUrls = useCallback(() => {
+    for (const url of imageObjectUrlCacheRef.current.values()) {
+      URL.revokeObjectURL(url);
+    }
+    imageObjectUrlCacheRef.current.clear();
+  }, []);
 
-      try {
-        const migrated = await Promise.all(
-          records.map(async (record) => {
-            if (!record.imageUrl || !isDataImageUrl(record.imageUrl)) {
-              return record;
-            }
-            const imageThumbUrl =
-              record.imageThumbUrl ??
-              (await createImageThumbnail(record.imageUrl));
-            return {
-              ...record,
-              imageThumbUrl,
-              imageUrl: undefined,
-            };
-          }),
-        );
+  const resolveRecordFullImage = useCallback(
+    async (record: GenerationRecord): Promise<string | null> => {
+      if (record.imageUrl) return record.imageUrl;
 
-        setHistory(() => appendHistoryRecords([], migrated));
-      } catch {
-        setError("旧历史图片迁移失败，请先清理缓存后再生成");
+      if (record.imageStored) {
+        const cached = imageObjectUrlCacheRef.current.get(record.id);
+        if (cached) return cached;
+
+        const blob = await getRecordImageBlob(record.id);
+        if (!blob) return record.imageThumbUrl ?? null;
+
+        const objectUrl = URL.createObjectURL(blob);
+        imageObjectUrlCacheRef.current.set(record.id, objectUrl);
+        return objectUrl;
       }
+
+      return record.imageThumbUrl ?? null;
     },
     [],
   );
 
+  const getRecordReferenceSource = useCallback(
+    async (record: GenerationRecord) => {
+      const imageUrl = await resolveRecordFullImage(record);
+      if (!imageUrl) return undefined;
+      const isThumbnail =
+        !record.imageStored &&
+        !record.imageUrl &&
+        Boolean(record.imageThumbUrl);
+      return { imageUrl, isThumbnail };
+    },
+    [resolveRecordFullImage],
+  );
+
   const openRecordPreview = useCallback(
     async (record: GenerationRecord) => {
-      const imageUrl = getRecordImageUrl(record);
+      const imageUrl = await resolveRecordFullImage(record);
       if (!imageUrl) {
-        setError("原图 URL 不存在，仅保留了缩略图");
+        setError("原图不存在，可能已被清理");
         return;
       }
       setPreviewImage({
@@ -309,14 +310,14 @@ export default function Home() {
         alt: record.prompt,
       });
     },
-    [getRecordImageUrl],
+    [resolveRecordFullImage],
   );
 
   const downloadRecordImage = useCallback(
     async (record: GenerationRecord) => {
-      const imageUrl = getRecordImageUrl(record);
+      const imageUrl = await resolveRecordFullImage(record);
       if (!imageUrl) {
-        setError("原图 URL 不存在，仅保留了缩略图");
+        setError("原图不存在，可能已被清理");
         return;
       }
       try {
@@ -325,7 +326,7 @@ export default function Home() {
         setError(err instanceof Error ? err.message : "图片下载失败，请稍后重试");
       }
     },
-    [getRecordImageUrl],
+    [resolveRecordFullImage],
   );
 
   useEffect(() => {
@@ -349,10 +350,10 @@ export default function Home() {
         // ignore invalid cache
       }
     }
-    const loadedHistory = loadHistory();
-    setHistory(loadedHistory);
-    void migrateLegacyHistoryImages(loadedHistory);
-  }, [migrateLegacyHistoryImages]);
+    void loadHistory().then((loadedHistory) => {
+      setHistory(loadedHistory);
+    });
+  }, []);
 
   useEffect(() => {
     void getUsdToCnyRate().then(({ rate, source }) => {
@@ -446,13 +447,19 @@ export default function Home() {
     );
   }, [listItems, promptSearch]);
 
-  const [storageOccupancyLabel, setStorageOccupancyLabel] = useState("0 KB");
+  const [storageBreakdown, setStorageBreakdown] =
+    useState<OpenPixStorageBreakdown>({
+      localStorageBytes: 0,
+      indexedDbBytes: 0,
+      indexedDbImageCount: 0,
+      totalBytes: 0,
+    });
 
   useEffect(() => {
-    setStorageOccupancyLabel(
-      formatOpenPixStorageOccupancy(getOpenPixStorageBytes()),
-    );
+    void getOpenPixStorageBreakdown().then(setStorageBreakdown);
   }, [history]);
+
+  useEffect(() => () => revokeAllRecordObjectUrls(), [revokeAllRecordObjectUrls]);
 
   const canGenerate = Boolean(apiKey.trim()) && !customSizeError;
 
@@ -471,15 +478,19 @@ export default function Home() {
 
   const handleClearCache = () => {
     if (!canConfirmClearCache) return;
-    clearOpenPixCache();
-    setHistory([]);
-    setApiKey("");
-    setKeySaved(false);
-    setSystemPrompt("");
-    closeClearCacheDialog();
+    void (async () => {
+      await clearOpenPixCache();
+      revokeAllRecordObjectUrls();
+      setHistory([]);
+      setApiKey("");
+      setKeySaved(false);
+      setSystemPrompt("");
+      closeClearCacheDialog();
+    })();
   };
 
   const handleDelete = (record: GenerationRecord) => {
+    revokeRecordObjectUrl(record.id);
     setHistory((prev) => deleteHistoryRecord(prev, record.id));
   };
 
@@ -558,14 +569,14 @@ export default function Home() {
   };
 
   const handleUseRecordAsReference = async (record: GenerationRecord) => {
-    const source = getRecordReferenceSource(record);
+    const source = await getRecordReferenceSource(record);
     if (!source) {
-      setError("原图 URL 不存在，仅保留了缩略图");
+      setError("原图不存在，可能已被清理");
       return;
     }
     await handleUseAsReference(source.imageUrl, `OpenPix-${record.createdAt}.jpg`);
     if (source.isThumbnail) {
-      setError("原图 URL 不存在，已使用缩略图作为参考图");
+      setError("原图不可用，已使用缩略图作为参考图");
     }
   };
 
@@ -710,24 +721,31 @@ export default function Home() {
           ? splitUsageCost(data.usage, data.images.length)
           : undefined;
         const newRecords: GenerationRecord[] = await Promise.all(
-          data.images.map(async (imageUrl, index) => ({
-            id: crypto.randomUUID(),
-            startedAt,
-            createdAt: completedAt - index,
-            durationMs,
-            model: taskModel,
-            modelName: taskModelName,
-            sizeId: taskSize,
-            sizeLabel: taskSizeLabel,
-            customWidth: taskCustomWidth,
-            customHeight: taskCustomHeight,
-            prompt: taskPrompt,
-            imageUrl: isDataImageUrl(imageUrl) ? undefined : imageUrl,
-            transientImageUrl: isDataImageUrl(imageUrl) ? imageUrl : undefined,
-            imageThumbUrl: await createOptionalImageThumbnail(imageUrl),
-            referenceThumbs: taskReferenceThumbs,
-            usage: perImageUsage,
-          })),
+          data.images.map(async (imageUrl, index) => {
+            const id = crypto.randomUUID();
+            const isData = isDataImageUrl(imageUrl);
+            if (isData) {
+              await saveRecordImage(id, imageUrl);
+            }
+            return {
+              id,
+              startedAt,
+              createdAt: completedAt - index,
+              durationMs,
+              model: taskModel,
+              modelName: taskModelName,
+              sizeId: taskSize,
+              sizeLabel: taskSizeLabel,
+              customWidth: taskCustomWidth,
+              customHeight: taskCustomHeight,
+              prompt: taskPrompt,
+              imageUrl: isData ? undefined : imageUrl,
+              imageStored: isData,
+              imageThumbUrl: await createOptionalImageThumbnail(imageUrl),
+              referenceThumbs: taskReferenceThumbs,
+              usage: perImageUsage,
+            };
+          }),
         );
 
         setRunningTasks((prev) => prev.filter((t) => t.id !== taskId));
@@ -813,7 +831,7 @@ export default function Home() {
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pb-[calc(4.25rem+env(safe-area-inset-bottom))] lg:pb-0">
           <RecordsToolbar
             recordCount={listItems.length}
-            storageOccupancyLabel={storageOccupancyLabel}
+            storageBreakdown={storageBreakdown}
             onClearCache={openClearCacheDialog}
             promptSearch={promptSearch}
             onPromptSearchChange={setPromptSearch}
@@ -1084,7 +1102,7 @@ export default function Home() {
               确认清理缓存
             </h3>
             <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-              将清除本机保存的生成记录、API KEY 和系统提示词等数据（主题设置会保留），此操作不可恢复。
+              将清除本机保存的生成记录、IndexedDB 中的原图、API KEY 和系统提示词等数据（主题设置会保留），此操作不可恢复。
             </p>
             <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
               请在下方输入「{CLEAR_CACHE_CONFIRM_PHRASE}」以继续。
