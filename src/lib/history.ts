@@ -37,6 +37,7 @@ export type GenerationRecord = {
   prompt: string;
   imageThumbUrl?: string;
   imageUrl?: string;
+  transientImageUrl?: string;
   error?: string;
   referenceThumbs?: ReferenceThumb[];
   usage?: TaskUsage;
@@ -58,6 +59,7 @@ function normalizeRecord(raw: Partial<GenerationRecord>): GenerationRecord {
     prompt: raw.prompt ?? "",
     imageThumbUrl: raw.imageThumbUrl,
     imageUrl: raw.imageUrl,
+    transientImageUrl: undefined,
     error: raw.error,
     referenceThumbs: raw.referenceThumbs,
     usage: raw.usage,
@@ -72,8 +74,15 @@ function estimateLocalStorageEntryBytes(key: string, value: string): number {
   return (key.length + value.length) * 2;
 }
 
+function sanitizeRecordForStorage(record: GenerationRecord): GenerationRecord {
+  return {
+    ...record,
+    transientImageUrl: undefined,
+  };
+}
+
 function encodeHistory(records: GenerationRecord[]): string {
-  return JSON.stringify(records);
+  return JSON.stringify(records.map(sanitizeRecordForStorage));
 }
 
 function estimateHistoryStorageBytes(records: GenerationRecord[]): number {

@@ -85,7 +85,7 @@ type PreviewImage = {
 const CLEAR_CACHE_CONFIRM_PHRASE = "确认清理";
 
 function getRecordImageThumb(record: GenerationRecord): string | undefined {
-  return record.imageThumbUrl ?? record.imageUrl;
+  return record.imageThumbUrl ?? record.imageUrl ?? record.transientImageUrl;
 }
 
 function isDataImageUrl(url: string): boolean {
@@ -218,7 +218,7 @@ export default function Home() {
     (record: GenerationRecord) =>
       record.imageUrl && !isDataImageUrl(record.imageUrl)
         ? record.imageUrl
-        : undefined,
+        : record.transientImageUrl,
     [],
   );
 
@@ -635,6 +635,7 @@ export default function Home() {
             customHeight: taskCustomHeight,
             prompt: taskPrompt,
             imageUrl: isDataImageUrl(imageUrl) ? undefined : imageUrl,
+            transientImageUrl: isDataImageUrl(imageUrl) ? imageUrl : undefined,
             imageThumbUrl: await createOptionalImageThumbnail(imageUrl),
             referenceThumbs: taskReferenceThumbs,
             usage: perImageUsage,
