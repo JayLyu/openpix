@@ -222,6 +222,18 @@ export default function Home() {
     [],
   );
 
+  const getRecordReferenceSource = useCallback((record: GenerationRecord) => {
+    const imageUrl =
+      record.imageUrl && !isDataImageUrl(record.imageUrl)
+        ? record.imageUrl
+        : record.transientImageUrl;
+    if (imageUrl) return { imageUrl, isThumbnail: false };
+    if (record.imageThumbUrl) {
+      return { imageUrl: record.imageThumbUrl, isThumbnail: true };
+    }
+    return undefined;
+  }, []);
+
   const migrateLegacyHistoryImages = useCallback(
     async (records: GenerationRecord[]) => {
       const legacyRecords = records.filter(
@@ -511,12 +523,15 @@ export default function Home() {
   };
 
   const handleUseRecordAsReference = async (record: GenerationRecord) => {
-    const imageUrl = getRecordImageUrl(record);
-    if (!imageUrl) {
+    const source = getRecordReferenceSource(record);
+    if (!source) {
       setError("原图 URL 不存在，仅保留了缩略图");
       return;
     }
-    await handleUseAsReference(imageUrl, `OpenPix-${record.createdAt}.jpg`);
+    await handleUseAsReference(source.imageUrl, `OpenPix-${record.createdAt}.jpg`);
+    if (source.isThumbnail) {
+      setError("原图 URL 不存在，已使用缩略图作为参考图");
+    }
   };
 
   const requestRetry = (record: GenerationRecord) => {
