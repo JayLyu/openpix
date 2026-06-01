@@ -159,6 +159,23 @@ function highlightPromptText(text: string, query: string): React.ReactNode {
   return parts.length > 0 ? parts : text;
 }
 
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+}
+
 function RecordPrompt({
   text,
   highlightQuery = "",
@@ -175,9 +192,19 @@ function RecordPrompt({
       className="block min-w-0 w-full"
       contentClassName="whitespace-normal break-words text-left text-sm leading-relaxed px-3 py-2.5"
     >
-      <p className="line-clamp-2 cursor-default text-sm leading-relaxed break-words">
+      <span className="line-clamp-2 cursor-default text-sm leading-relaxed break-words">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            void copyTextToClipboard(text);
+          }}
+          className="mr-1.5 inline text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
+        >
+          复制
+        </button>
         {content}
-      </p>
+      </span>
     </Tooltip>
   );
 }
