@@ -10,7 +10,11 @@ type Status = "checking" | "online" | "offline";
 
 const CHECK_INTERVAL_MS = 60_000;
 
-export function OpenRouterStatus() {
+export function OpenRouterStatus({
+  hideLabelOnMobile = false,
+}: {
+  hideLabelOnMobile?: boolean;
+}) {
   const [status, setStatus] = useState<Status>("checking");
   const [detail, setDetail] = useState("正在检测 OpenRouter 连接…");
 
@@ -53,7 +57,9 @@ export function OpenRouterStatus() {
         className="inline-flex shrink-0 items-center gap-1.5 rounded-sm text-sm text-muted-foreground transition-colors hover:text-foreground"
         aria-label={`OpenRouter ${statusLabel}`}
       >
-        <span>OpenRouter</span>
+        <span className={cn(hideLabelOnMobile && "hidden sm:inline")}>
+          OpenRouter
+        </span>
         {status === "checking" ? (
           <Loader2 className="size-3 animate-spin" aria-hidden />
         ) : (

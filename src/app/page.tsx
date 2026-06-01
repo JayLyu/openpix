@@ -6,36 +6,32 @@ import {
   Trash2,
   ImageOff,
   X,
-  Upload,
-  ChevronDown,
-  CircleHelp,
   Download,
   ImagePlus,
   RotateCcw,
-  CircleCheck,
-  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { Tooltip } from "@/components/ui/tooltip";
 import { CostSummary } from "@/components/cost-summary";
 import { ImageLightbox } from "@/components/image-lightbox";
+import { ApiKeyHeader } from "@/components/api-key-header";
+import { RecordsToolbar } from "@/components/records-toolbar";
 import { OpenRouterStatus } from "@/components/openrouter-status";
 import { ThemeToggle } from "@/components/theme-toggle";
+import {
+  GenerateImageButton,
+  GenerationForm,
+  type GenerationFormProps,
+} from "@/components/generation-form";
+import { toast } from "sonner";
 import { MODELS } from "@/lib/models";
 import {
   CUSTOM_SIZE_ID,
   DEFAULT_CUSTOM_HEIGHT,
   DEFAULT_CUSTOM_WIDTH,
   DEFAULT_SIZE_ID,
-  MAX_IMAGE_DIMENSION,
-  MIN_IMAGE_DIMENSION,
-  SIZE_CARD_OPTIONS,
-  formatSizePixels,
   formatSizeRecord,
-  formatSizeSummary,
   parseCustomDimension,
   resolveSizeOption,
   validateCustomDimensions,
@@ -71,8 +67,6 @@ import {
   formatOpenPixStorageOccupancy,
   getOpenPixStorageBytes,
 } from "@/lib/storage-usage";
-import { cn } from "@/lib/utils";
-
 type ListItem =
   | ({ kind: "running" } & RunningTask)
   | ({ kind: "done" } & GenerationRecord);
@@ -172,8 +166,11 @@ async function copyTextToClipboard(text: string): Promise<void> {
   textarea.style.opacity = "0";
   document.body.appendChild(textarea);
   textarea.select();
-  document.execCommand("copy");
+  const ok = document.execCommand("copy");
   document.body.removeChild(textarea);
+  if (!ok) {
+    throw new Error("copy failed");
+  }
 }
 
 function RecordPrompt({
@@ -197,7 +194,13 @@ function RecordPrompt({
           type="button"
           onClick={(event) => {
             event.stopPropagation();
-            void copyTextToClipboard(text);
+            void copyTextToClipboard(text)
+              .then(() => {
+                toast.success("已复制到剪贴板");
+              })
+              .catch(() => {
+                toast.error("复制失败，请重试");
+              });
           }}
           className="mr-1.5 inline text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
         >
@@ -239,6 +242,7 @@ export default function Home() {
   const [usdCnyRateSource, setUsdCnyRateSource] =
     useState<UsdCnyRateSource>("default");
   const [promptSearch, setPromptSearch] = useState("");
+  const [mobileFormOpen, setMobileFormOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const getRecordImageUrl = useCallback(
@@ -584,9 +588,46 @@ export default function Home() {
     setPrompt(retryRecord.prompt);
     setError("");
     setRetryRecord(null);
+    setMobileFormOpen(true);
   };
 
-  const generate = () => {
+  const generationFormProps: GenerationFormProps = {
+    model,
+    onModelChange: setModel,
+    size,
+    onSizeChange: setSize,
+    sizeOpen,
+    onSizeOpenToggle: () => setSizeOpen((open) => !open),
+    selectedSize,
+    customWidth,
+    customHeight,
+    customWidthInput,
+    onCustomWidthInputChange: setCustomWidthInput,
+    customHeightInput,
+    onCustomHeightInputChange: setCustomHeightInput,
+    onSaveCustomSize: saveCustomSize,
+    customSizeError,
+    systemPromptOpen,
+    onSystemPromptOpenToggle: () => setSystemPromptOpen((open) => !open),
+    systemPrompt,
+    onSystemPromptChange: setSystemPrompt,
+    onSaveSystemPrompt: saveSystemPrompt,
+    referenceImages,
+    onRemoveReferenceImage: removeReferenceImage,
+    fileInputRef,
+    onImageUpload: handleImageUpload,
+    processingImage,
+    onPreviewImage: setPreviewImage,
+    prompt,
+    onPromptChange: setPrompt,
+  };
+
+  const generateImageLabel =
+    runningTasks.length > 0
+      ? `生成图像（${runningTasks.length} 进行中）`
+      : "生成图像";
+
+  const handleGenerate = () => {
     const keyError = validateOpenRouterApiKey(apiKey);
     if (keyError) {
       setError(keyError);
@@ -602,6 +643,7 @@ export default function Home() {
     }
 
     setError("");
+    setMobileFormOpen(false);
 
     const taskId = crypto.randomUUID();
     const startedAt = Date.now();
@@ -725,494 +767,67 @@ export default function Home() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
-      <header className="shrink-0 border-b border-border px-6 py-3 flex items-center justify-between gap-4">
-        <div className="flex shrink-0 items-center gap-3">
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3 sm:gap-4 sm:px-6">
+        <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
           <a
             href="https://github.com/JayLyu/openpix"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xl font-semibold tracking-tight transition-colors hover:text-foreground/80"
+            className="truncate text-lg font-semibold tracking-tight transition-colors hover:text-foreground/80 sm:text-xl"
           >
             OpenPix
           </a>
           <ThemeToggle />
         </div>
 
-        <div className="flex items-center gap-3 min-w-0 justify-end">
-          <OpenRouterStatus />
-          <div className="inline-flex items-baseline gap-1 shrink-0 text-sm text-muted-foreground">
-            <span>API KEY</span>
-            <div className="relative group leading-none">
-              <button
-                type="button"
-                className="inline-flex translate-y-[0.5px] rounded-sm text-muted-foreground hover:text-foreground transition-colors"
-                aria-label="API KEY 说明"
-              >
-                <CircleHelp className="size-3.5" />
-              </button>
-              <div
-                role="tooltip"
-                className="pointer-events-none absolute right-0 top-full z-50 mt-2 w-80 rounded-lg border border-border bg-popover p-3 text-xs leading-relaxed text-popover-foreground shadow-md opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
-              >
-                <p className="font-medium text-foreground">
-                  密钥仅保存在本机浏览器缓存（localStorage），不会上传到
-                  OpenPix 或任何服务器。
-                </p>
-                <p className="mt-2 text-muted-foreground">
-                  请使用 OpenRouter 密钥（sk-or-…），在{" "}
-                  <a
-                    href="https://openrouter.ai/keys"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline underline-offset-2 hover:text-foreground"
-                  >
-                    openrouter.ai/keys
-                  </a>{" "}
-                  创建，不支持 OpenAI 官方密钥。
-                </p>
-                {(keySaved || apiKey.trim()) && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="mt-3 h-7 w-full text-xs"
-                    onClick={clearApiKey}
-                  >
-                    清除本地缓存
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="relative">
-            <Input
-              id="apiKey"
-              type="password"
-              placeholder="sk-or-..."
-              value={apiKey}
-              onChange={(e) => {
-                setApiKey(e.target.value);
-                setKeySaved(false);
-              }}
-              onBlur={saveKey}
-              className="font-mono text-sm w-44 sm:w-56 pr-8"
-            />
-            {keySaved && apiKey.trim() && (
-              <CircleCheck
-                className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-emerald-500"
-                aria-label="已写入浏览器本地缓存"
-              />
-            )}
-          </div>
+        <div className="flex min-w-0 shrink-0 items-center justify-end gap-2 sm:gap-3">
+          <OpenRouterStatus hideLabelOnMobile />
+          <ApiKeyHeader
+            apiKey={apiKey}
+            onApiKeyChange={setApiKey}
+            onKeySavedChange={setKeySaved}
+            onBlurSave={saveKey}
+            keySaved={keySaved}
+            onClear={clearApiKey}
+          />
         </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <aside className="flex min-h-0 w-full flex-1 flex-col border-b border-border lg:w-[420px] lg:flex-none lg:shrink-0 lg:border-b-0 lg:border-r">
+        <aside className="hidden min-h-0 w-[420px] shrink-0 flex-col border-r border-border lg:flex">
           <div className="min-h-0 flex-1 overflow-y-auto p-6">
-            <div className="space-y-6">
-            <div className="space-y-2">
-              <Label className="text-xs tracking-wider text-muted-foreground">
-                模型
-              </Label>
-              <div className="grid grid-cols-2 gap-2">
-                {MODELS.map((m) => {
-                  const selected = model === m.id;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => setModel(m.id)}
-                      className={cn(
-                        "rounded-lg border p-2.5 text-left transition-colors min-w-0",
-                        selected
-                          ? "border-primary bg-primary/5 ring-1 ring-primary/40"
-                          : "border-border hover:border-foreground/20 hover:bg-muted/40",
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-1.5">
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium leading-snug truncate">
-                            {m.name}
-                          </p>
-                          <p className="mt-0.5 text-[10px] text-muted-foreground">
-                            {m.provider}
-                          </p>
-                        </div>
-                        <span
-                          className={cn(
-                            "mt-0.5 size-3.5 shrink-0 rounded-full border-2 transition-colors",
-                            selected
-                              ? "border-primary bg-primary"
-                              : "border-muted-foreground/40",
-                          )}
-                          aria-hidden
-                        >
-                          {selected && (
-                            <span className="flex size-full items-center justify-center">
-                              <span className="size-1 rounded-full bg-primary-foreground" />
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => setSizeOpen((open) => !open)}
-                className="flex w-full items-center justify-between gap-2 text-xs tracking-wider text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <span>尺寸</span>
-                <span className="flex min-w-0 items-center gap-1.5">
-                  {!sizeOpen && (
-                    <span className="truncate text-[10px] font-normal normal-case tracking-normal text-muted-foreground/90">
-                      {formatSizeSummary(selectedSize)}
-                    </span>
-                  )}
-                  <ChevronDown
-                    className={cn(
-                      "size-4 shrink-0 transition-transform",
-                      sizeOpen && "rotate-180",
-                    )}
-                  />
-                </span>
-              </button>
-              {sizeOpen && (
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    {SIZE_CARD_OPTIONS.map((s) => {
-                      const selected = size === s.id;
-                      const isCustom = s.id === CUSTOM_SIZE_ID;
-                      const displaySize = isCustom
-                        ? resolveSizeOption(
-                            CUSTOM_SIZE_ID,
-                            customWidth ?? undefined,
-                            customHeight ?? undefined,
-                          )
-                        : s;
-                      return (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onClick={() => setSize(s.id)}
-                          className={cn(
-                            "rounded-lg border p-2.5 text-left transition-colors min-w-0",
-                            selected
-                              ? "border-primary bg-primary/5 ring-1 ring-primary/40"
-                              : "border-border hover:border-foreground/20 hover:bg-muted/40",
-                          )}
-                        >
-                          <div className="flex items-start justify-between gap-1.5">
-                            <div className="min-w-0">
-                              <p className="text-xs font-medium leading-snug truncate">
-                                {s.label}
-                              </p>
-                              <p className="mt-0.5 text-[10px] text-muted-foreground truncate">
-                                {isCustom
-                                  ? formatSizePixels(displaySize)
-                                  : `${s.aspectRatio} · ${formatSizePixels(s)}`}
-                              </p>
-                              <p className="mt-0.5 text-[10px] text-muted-foreground/80 truncate">
-                                {s.platform}
-                              </p>
-                            </div>
-                            <span
-                              className={cn(
-                                "mt-0.5 size-3.5 shrink-0 rounded-full border-2 transition-colors",
-                                selected
-                                  ? "border-primary bg-primary"
-                                  : "border-muted-foreground/40",
-                              )}
-                              aria-hidden
-                            >
-                              {selected && (
-                                <span className="flex size-full items-center justify-center">
-                                  <span className="size-1 rounded-full bg-primary-foreground" />
-                                </span>
-                              )}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {size === CUSTOM_SIZE_ID && (
-                    <div className="space-y-2 rounded-lg border border-border p-3">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <Label
-                            htmlFor="customWidth"
-                            className="text-[10px] text-muted-foreground"
-                          >
-                            宽度（px）
-                          </Label>
-                          <Input
-                            id="customWidth"
-                            type="number"
-                            inputMode="numeric"
-                            min={MIN_IMAGE_DIMENSION}
-                            max={MAX_IMAGE_DIMENSION}
-                            step={1}
-                            value={customWidthInput}
-                            onChange={(event) =>
-                              setCustomWidthInput(event.target.value)
-                            }
-                            onBlur={saveCustomSize}
-                            className="h-8 text-sm"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label
-                            htmlFor="customHeight"
-                            className="text-[10px] text-muted-foreground"
-                          >
-                            高度（px）
-                          </Label>
-                          <Input
-                            id="customHeight"
-                            type="number"
-                            inputMode="numeric"
-                            min={MIN_IMAGE_DIMENSION}
-                            max={MAX_IMAGE_DIMENSION}
-                            step={1}
-                            value={customHeightInput}
-                            onChange={(event) =>
-                              setCustomHeightInput(event.target.value)
-                            }
-                            onBlur={saveCustomSize}
-                            className="h-8 text-sm"
-                          />
-                        </div>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground/80">
-                        宽高范围 {MIN_IMAGE_DIMENSION}–{MAX_IMAGE_DIMENSION}{" "}
-                        像素，需为整数
-                      </p>
-                      {customSizeError && (
-                        <p className="text-[10px] text-destructive">
-                          {customSizeError}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => setSystemPromptOpen((open) => !open)}
-                className="flex w-full items-center justify-between text-xs tracking-wider text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <span>
-                  系统提示词
-                  <span className="ml-1 text-muted-foreground/70">
-                    （可选）
-                  </span>
-                </span>
-                <ChevronDown
-                  className={cn(
-                    "size-4 transition-transform",
-                    systemPromptOpen && "rotate-180",
-                  )}
-                />
-              </button>
-              {systemPromptOpen && (
-                <>
-                  <Textarea
-                    id="systemPrompt"
-                    placeholder="设定全局风格，例如：扁平插画风格、品牌主色为蓝色、图片中的文字使用中文…"
-                    value={systemPrompt}
-                    onChange={(e) => setSystemPrompt(e.target.value)}
-                    onBlur={saveSystemPrompt}
-                    className="min-h-[72px] resize-none text-sm"
-                  />
-                  <p className="text-xs text-muted-foreground/70">
-                    用于统一画风、品牌调性或输出规范，留空则仅使用下方提示词。
-                  </p>
-                </>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <Label className="text-xs tracking-wider text-muted-foreground">
-                  参考图
-                  <span className="ml-1 text-muted-foreground/70">
-                    （可选，最多 {MAX_REFERENCE_IMAGES} 张）
-                  </span>
-                </Label>
-                <span className="text-xs text-muted-foreground">
-                  {referenceImages.length}/{MAX_REFERENCE_IMAGES}
-                </span>
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                multiple
-                className="hidden"
-                onChange={handleImageUpload}
-              />
-              {referenceImages.length > 0 && (
-                <div className="grid grid-cols-3 gap-2">
-                  {referenceImages.map((image) => (
-                    <div
-                      key={image.id}
-                      className="relative rounded-lg border border-border overflow-hidden"
-                    >
-                      <button
-                        type="button"
-                        className="block w-full aspect-square cursor-zoom-in bg-muted"
-                        onClick={() =>
-                          setPreviewImage({
-                            src: image.dataUrl,
-                            alt: image.name,
-                          })
-                        }
-                        aria-label={`预览 ${image.name}`}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={image.dataUrl}
-                          alt={image.name}
-                          className="w-full h-full object-contain"
-                        />
-                      </button>
-                      <div className="px-2 py-1.5 text-[10px] leading-tight text-muted-foreground border-t border-border">
-                        <p className="truncate">{image.name}</p>
-                        <p>
-                          {image.width}×{image.height}
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        className="absolute top-1 right-1 bg-background/80 hover:bg-background"
-                        onClick={() => removeReferenceImage(image.id)}
-                        aria-label={`移除 ${image.name}`}
-                      >
-                        <X />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {referenceImages.length < MAX_REFERENCE_IMAGES && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  disabled={processingImage}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {processingImage ? (
-                    <>
-                      <Loader2 className="animate-spin" />
-                      处理中…
-                    </>
-                  ) : (
-                    <>
-                      <Upload />
-                      {referenceImages.length > 0
-                        ? "继续添加参考图"
-                        : "上传参考图"}
-                    </>
-                  )}
-                </Button>
-              )}
-              <p className="text-xs text-muted-foreground/70">
-                支持 JPG / PNG / WebP / GIF，大图会自动压缩至 2048px
-                长边以内再发送。
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label
-                htmlFor="prompt"
-                className="text-xs tracking-wider text-muted-foreground"
-              >
-                提示词
-              </Label>
-              <Textarea
-                id="prompt"
-                placeholder="描述你想生成的图像…"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                className="min-h-[180px] resize-none text-sm"
-              />
-            </div>
-
-            </div>
+            <GenerationForm {...generationFormProps} />
           </div>
           <div className="shrink-0 border-t border-border bg-background p-4 px-6">
-            <Button
-              onClick={generate}
-              className="w-full"
-              size="lg"
-              disabled={!canGenerate}
-            >
-              {runningTasks.length > 0
-                ? `生成图像（${runningTasks.length} 进行中）`
-                : "生成图像"}
-            </Button>
+            <GenerateImageButton
+              runningCount={runningTasks.length}
+              canGenerate={canGenerate}
+              onClick={handleGenerate}
+            />
             {error && (
               <p className="mt-2 text-sm text-destructive">{error}</p>
             )}
           </div>
         </aside>
 
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-6 py-4">
-            <div className="flex min-w-0 items-center gap-3">
-              <h2 className="shrink-0 text-sm font-medium">生成记录</h2>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                总 {listItems.length} 条数据 · 占 {storageOccupancyLabel} ·{" "}
-                <button
-                  type="button"
-                  onClick={openClearCacheDialog}
-                  className="text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
-                >
-                  清理缓存
-                </button>
-              </span>
-            </div>
-            <div className="relative w-44 shrink-0 sm:w-56">
-              <Search
-                className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-                aria-hidden
-              />
-              <Input
-                value={promptSearch}
-                onChange={(event) => setPromptSearch(event.target.value)}
-                placeholder="搜索提示词…"
-                className="h-8 pl-9 pr-8 text-sm"
-                aria-label="搜索提示词"
-              />
-              {promptSearch && (
-                <button
-                  type="button"
-                  onClick={() => setPromptSearch("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm text-muted-foreground hover:text-foreground"
-                  aria-label="清除搜索"
-                >
-                  <X className="size-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pb-[calc(4.25rem+env(safe-area-inset-bottom))] lg:pb-0">
+          <RecordsToolbar
+            recordCount={listItems.length}
+            storageOccupancyLabel={storageOccupancyLabel}
+            onClearCache={openClearCacheDialog}
+            promptSearch={promptSearch}
+            onPromptSearchChange={setPromptSearch}
+          />
 
           <div className="scrollbar-stable min-h-0 flex-1 overflow-y-scroll px-6 py-4">
           {listItems.length === 0 ? (
-            <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
-              暂无生成记录，填写左侧表单开始创作
+            <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-border px-4 text-center text-sm text-muted-foreground">
+              <span className="lg:hidden">
+                暂无生成记录，点击底部「开始创作」填写表单
+              </span>
+              <span className="hidden lg:inline">
+                暂无生成记录，填写左侧表单开始创作
+              </span>
             </div>
           ) : filteredListItems.length === 0 ? (
             <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
@@ -1390,6 +1005,69 @@ export default function Home() {
         </main>
       </div>
 
+      {!mobileFormOpen && (
+        <nav
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 lg:hidden"
+          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        >
+          <div className="px-4 py-3">
+            <Button
+              type="button"
+              size="lg"
+              className="w-full"
+              onClick={() => setMobileFormOpen(true)}
+            >
+              开始创作
+            </Button>
+          </div>
+        </nav>
+      )}
+
+      {mobileFormOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 lg:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="mobile-form-dialog-title"
+        >
+          <div
+            className="flex h-[95vh] w-[90vw] min-h-0 flex-col rounded-lg border border-border bg-popover shadow-lg"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+              <h2
+                id="mobile-form-dialog-title"
+                className="text-sm font-medium"
+              >
+                创作
+              </h2>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setMobileFormOpen(false)}
+                aria-label="关闭"
+              >
+                <X />
+              </Button>
+            </div>
+            <div className="scrollbar-stable min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+              <GenerationForm {...generationFormProps} idPrefix="mobile-" />
+            </div>
+            <div className="shrink-0 border-t border-border p-4">
+              <GenerateImageButton
+                runningCount={runningTasks.length}
+                canGenerate={canGenerate}
+                onClick={handleGenerate}
+              />
+              {error && (
+                <p className="mt-2 text-sm text-destructive">{error}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {clearCacheConfirmOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -1493,7 +1171,7 @@ export default function Home() {
               确认回填表单
             </h3>
             <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-              将把该失败任务的模型、尺寸和提示词回填到左侧表单，当前表单内容将被覆盖。是否继续？
+              将把该失败任务的模型、尺寸和提示词回填到创作表单，当前表单内容将被覆盖。是否继续？
             </p>
             <div className="mt-5 flex justify-end gap-2">
               <Button
