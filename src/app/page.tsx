@@ -288,7 +288,11 @@ export default function Home() {
         setError("原图 URL 不存在，仅保留了缩略图");
         return;
       }
-      downloadImage(imageUrl, record.createdAt);
+      try {
+        await downloadImage(imageUrl, record.createdAt);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "图片下载失败，请稍后重试");
+      }
     },
     [getRecordImageUrl],
   );
